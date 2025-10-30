@@ -20,7 +20,7 @@ GV_CONFIG = {
     "gv_ip": "0.0.0.0",  # Listen on all interfaces
     "gv_port": 6000,
     "max_teams": 8,
-    "game_duration": 300,  # 5 minutes
+    "game_duration": 120,  # 2 minutes (configurable)
     "points_per_hit": 100,
     "video_ports_start": 5001  # Team 1 = 5001, Team 2 = 5002, etc.
 }
@@ -150,6 +150,10 @@ class GameViewer:
         tk.Button(btn_frame, text="💾 Export Log",
                  command=self.export_log,
                  font=('Arial', 10), bg='#2196F3', fg='white', width=15).pack(pady=2)
+        
+        tk.Button(btn_frame, text="⚙️ Settings",
+                 command=self.open_settings,
+                 font=('Arial', 10), bg='#607D8B', fg='white', width=15).pack(pady=2)
         
         # Main content - 3 columns
         content_frame = tk.Frame(main_frame, bg='#1a1a1a')
@@ -355,8 +359,11 @@ class GameViewer:
         self.hit_log = []
         self.hit_log_text.delete(1.0, tk.END)
         
-        # Send game start message
-        message = {'type': 'GAME_START'}
+        # Send game start message WITH DURATION
+        message = {
+            'type': 'GAME_START',
+            'duration': self.config['game_duration']
+        }
         self.broadcast_message(message)
         
         # Update UI
@@ -365,7 +372,7 @@ class GameViewer:
         self.end_game_btn.config(state=tk.NORMAL)
         self.ready_check_btn.config(state=tk.DISABLED)
         
-        print("[GV] Game started!")
+        print(f"[GV] Game started! Duration: {self.config['game_duration']}s")
     
     def end_game(self):
         """End the game"""
@@ -496,6 +503,88 @@ class GameViewer:
         
         # Schedule next update
         self.root.after(100, self.update_gui)
+    
+    def open_settings(self):
+        """Open settings dialog"""
+        dialog = tk.Toplevel(self.root)
+        dialog.title("⚙️ Game Viewer Settings")
+        dialog.geometry("400x300")
+        dialog.configure(bg='#2a2a2a')
+        dialog.transient(self.root)
+        dialog.grab_set()
+        
+        # Main frame
+        main_frame = tk.Frame(dialog, bg='#2a2a2a')
+        main_frame.pack(fill='both', expand=True, padx=20, pady=20)
+        
+        # Title
+        tk.Label(main_frame, text="Game Configuration",
+                font=('Arial', 14, 'bold'), bg='#2a2a2a', fg='white').pack(pady=10)
+        
+        # Game Duration
+        duration_frame = tk.Frame(main_frame, bg='#2a2a2a')
+        duration_frame.pack(fill='x', pady=10)
+        
+        tk.Label(duration_frame, text="Game Duration (seconds):",
+                font=('Arial', 11), bg='#2a2a2a', fg='white').pack(side='left')
+        
+        duration_var = tk.StringVar(value=str(self.config['game_duration']))
+        duration_entry = tk.Entry(duration_frame, textvariable=duration_var,
+                                 font=('Arial', 11), width=10,
+                                 bg='#3a3a3a', fg='white', insertbackground='white')
+        duration_entry.pack(side='left', padx=10)
+        
+        tk.Label(duration_frame, text=f"({self.config['game_duration']//60} min {self.config['game_duration']%60} sec)",
+                font=('Arial', 9), bg='#2a2a2a', fg='#888888').pack(side='left')
+        
+        # Points per hit
+        points_frame = tk.Frame(main_frame, bg='#2a2a2a')
+        points_frame.pack(fill='x', pady=10)
+        
+        tk.Label(points_frame, text="Points per Hit:",
+                font=('Arial', 11), bg='#2a2a2a', fg='white').pack(side='left')
+        
+        points_var = tk.StringVar(value=str(self.config['points_per_hit']))
+        points_entry = tk.Entry(points_frame, textvariable=points_var,
+                               font=('Arial', 11), width=10,
+                               bg='#3a3a3a', fg='white', insertbackground='white')
+        points_entry.pack(side='left', padx=10)
+        
+        # Max teams
+        teams_frame = tk.Frame(main_frame, bg='#2a2a2a')
+        teams_frame.pack(fill='x', pady=10)
+        
+        tk.Label(teams_frame, text="Max Teams:",
+                font=('Arial', 11), bg='#2a2a2a', fg='white').pack(side='left')
+        
+        teams_var = tk.StringVar(value=str(self.config['max_teams']))
+        teams_entry = tk.Entry(teams_frame, textvariable=teams_var,
+                              font=('Arial', 11), width=10,
+                              bg='#3a3a3a', fg='white', insertbackground='white')
+        teams_entry.pack(side='left', padx=10)
+        
+        # Save button
+        def save_settings():
+            try:
+                self.config['game_duration'] = int(duration_var.get())
+                self.config['points_per_hit'] = int(points_var.get())
+                self.config['max_teams'] = int(teams_var.get())
+                self.save_config()
+                messagebox.showinfo("Success", "Settings saved successfully!")
+                dialog.destroy()
+            except ValueError:
+                messagebox.showerror("Error", "Please enter valid numbers")
+        
+        btn_frame = tk.Frame(main_frame, bg='#2a2a2a')
+        btn_frame.pack(pady=20)
+        
+        tk.Button(btn_frame, text="💾 Save", command=save_settings,
+                 font=('Arial', 11, 'bold'), bg='#4CAF50', fg='white',
+                 width=12, height=2).pack(side='left', padx=5)
+        
+        tk.Button(btn_frame, text="✗ Cancel", command=dialog.destroy,
+                 font=('Arial', 11, 'bold'), bg='#f44336', fg='white',
+                 width=12, height=2).pack(side='left', padx=5)
     
     def on_closing(self):
         """Clean up on close"""

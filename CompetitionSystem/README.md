@@ -14,12 +14,12 @@ This is a complete competition system for laser tag robotics featuring:
 ```
 ┌─────────────────┐         ┌─────────────────┐
 │   RASPBERRY PI  │◄───────►│     LAPTOP      │
-│   (Robot Code)  │  UDP    │  (Controller)   │
+│   (Robot Code)  │  UDP    │  (Keyboard GUI) │
 │                 │  5005   │                 │
-│  • Motors       │         │  • Xbox Control │
+│  • Motors       │         │  • WASD Control │
 │  • IR System    │         │  • Video View   │
-│  • Camera       │         │  • Settings GUI │
-│  • Servos/GPIO  │         │                 │
+│  • Camera       │         │  • Ready System │
+│  • Servos/GPIO  │         │  • Debug Mode   │
 └────────┬────────┘         └─────────────────┘
          │                           
          │ UDP 6000+                 
@@ -156,28 +156,33 @@ Configure via GUI Settings button:
 - ✅ Protected code files
 
 ### Laptop Features
-- ✅ Xbox controller support
+- ✅ **WASD keyboard controls** (No Xbox controller needed!)
 - ✅ Full mecanum drive control
-- ✅ Variable speed (triggers)
-- ✅ Servo control (D-pad)
+- ✅ Variable speed (Shift for boost)
+- ✅ Servo control (Q/Z, E/C keys)
+- ✅ GPIO control (1/2/3/4 keys)
 - ✅ Video feed display
 - ✅ Settings GUI
+- ✅ **Debug Mode** for free testing
+- ✅ **Game Mode** with ready system
 - ✅ Real-time stats display
 - ✅ Game status monitoring
 - ✅ Ready-up button
 - ✅ Points/K/D tracking
 - ✅ Hit notifications
 - ✅ Connection monitoring
+- ✅ Synchronized game timer
 
 ### Game Viewer Features
 - ✅ 4-way split video display
 - ✅ Team name overlays
 - ✅ Points leaderboard
 - ✅ Hit tracking and logging
-- ✅ Game timer
+- ✅ **Configurable game timer** (Settings dialog)
 - ✅ Ready check system
 - ✅ Game start/stop controls
 - ✅ Admin panel
+- ✅ **Duration synchronization** with all laptops
 - ✅ Automatic scoring
 - ✅ Export game logs
 
@@ -232,10 +237,10 @@ ping <game_viewer_ip>
 
 ### Laptop Issues
 
-**Controller not detected**
-- Ensure Xbox controller is plugged in
-- Install pygame: `pip install pygame`
-- Try reconnecting controller
+**Keyboard controls not working**
+- Ensure laptop window has focus (click on it)
+- Check that no text fields are active
+- Verify key bindings in `laptop_config.json`
 
 **Video not displaying**
 - Check GStreamer installation

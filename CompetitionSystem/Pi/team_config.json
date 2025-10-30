@@ -3,15 +3,15 @@
   
   "team": {
     "team_id": 1,
-    "team_name": "Team Alpha",
-    "robot_name": "Alpha-1"
+    "team_name": "Admin",
+    "robot_name": "Admin_Robot"
   },
   
   "network": {
-    "laptop_ip": "192.168.1.100",
+    "laptop_ip": "192.168.50.142",
     "laptop_port": 4999,
     "laptop_video_port": 5100,
-    "game_viewer_ip": "192.168.1.50",
+    "game_viewer_ip": "192.168.50.142",
     "game_viewer_video_port": 5001,
     "game_viewer_control_port": 6000,
     "robot_listen_port": 5005
@@ -19,11 +19,11 @@
   
   "motors": {
     "_comment": "Motor pins in BCM mode - DO NOT CHANGE KEYS",
-    "A": {"EN": 18, "IN1": 23, "IN2": 24, "corner": "FL", "direction_offset": 1},
-    "B": {"EN": 19, "IN1": 25, "IN2": 8, "corner": "FR", "direction_offset": 1},
-    "C": {"EN": 5, "IN1": 22, "IN2": 26, "corner": "RL", "direction_offset": 1},
-    "D": {"EN": 6, "IN1": 16, "IN2": 20, "corner": "RR", "direction_offset": 1},
-    "standby_pins": [9, 11],
+    "A": {"EN": 18, "IN1": 4, "IN2": 17, "corner": "FL", "direction_offset": 1},
+    "B": {"EN": 23, "IN1": 15, "IN2": 27, "corner": "FR", "direction_offset": 1},
+    "C": {"EN": 8, "IN1": 16, "IN2": 7, "corner": "RL", "direction_offset": 1},
+    "D": {"EN": 13, "IN1": 12, "IN2": 6, "corner": "RR", "direction_offset": 1},
+    "standby_pins": [14, 5],
     "pwm_frequency": 10000,
     "min_duty_cycle": 30,
     "pure_dc_threshold": 80
@@ -31,8 +31,8 @@
   
   "ir_system": {
     "_comment": "IR Transmitter and Receiver pins - DO NOT CHANGE PROTOCOL",
-    "transmitter_gpio": 17,
-    "receiver_gpios": [4, 27, 12],
+    "transmitter_gpio": 20,
+    "receiver_gpios": [3, 25, 21],
     "carrier_frequency": 38000,
     "protocol": {
       "bit_0_burst_us": 800,
@@ -47,14 +47,14 @@
   "servos": {
     "_comment": "Two servo channels - pulse width 1000-2000us",
     "servo_1": {
-      "gpio": 0,
+      "gpio": 19,
       "min_pulse_us": 1000,
       "max_pulse_us": 2000,
       "default_position": 1500,
       "enabled": false
     },
     "servo_2": {
-      "gpio": 0,
+      "gpio": 11,
       "min_pulse_us": 1000,
       "max_pulse_us": 2000,
       "default_position": 1500,
@@ -65,12 +65,12 @@
   "lights": {
     "_comment": "Two status lights",
     "d1": {
-      "gpio": 0,
+      "gpio": 26,
       "initial_state": 0,
       "enabled": false
     },
     "d2": {
-      "gpio": 0,
+      "gpio": 2,
       "initial_state": 0,
       "enabled": false
     }

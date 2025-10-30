@@ -8,7 +8,7 @@
 - [ ] Verify IR transmitter and receivers work
 - [ ] Test camera stream to laptop
 - [ ] Confirm network connectivity to Game Viewer
-- [ ] Practice with Xbox controller
+- [ ] Practice with WASD keyboard controls
 - [ ] Have backup batteries charged
 
 ### Competition Day Setup
@@ -17,36 +17,66 @@
 3. **Start Pi code**: `./start_robot.sh`
 4. **Start laptop control**: `python laptop_control.py`
 5. **Click "Settings"** and verify IPs
-6. **Click "Start Camera"** to view feed
-7. **Test controller** - move robot
-8. **Click "Ready Up"** when Game Viewer asks
+6. **Click "Start Stream"** to view video feed
+7. **Test controls in Debug Mode** - move robot with WASD
+8. **Click "Ready Up"** when prepared for game
+9. **Wait for Game Viewer to start game**
 
 ---
 
-## ⌨️ Xbox Controller Quick Reference
+## ⌨️ KEYBOARD CONTROLS
 
-### Movement
-- **Left Stick Up/Down**: Forward/Backward
-- **Left Stick Left/Right**: Strafe Left/Right
-- **Right Stick Left/Right**: Rotate
+### Movement (WASD)
+- **W**: Forward
+- **S**: Backward
+- **A**: Strafe Left
+- **D**: Strafe Right
+- **Shift**: Boost Speed (hold while moving)
 
-### Speed Control
-- **Right Trigger (RT)**: Variable boost (50%-100% speed)
-- **LB Button**: Full boost (100% speed)
-- **Left Trigger (LT)**: Slow mode (30%-50% speed)
-
-### Weapons & Combat
-- **A Button**: Fire laser (single shot)
-- **RB Button**: Fire laser (alternative)
+### Combat
+- **Space**: Fire Laser (500ms cooldown)
 
 ### Servo Control
-- **D-Pad Up/Down**: Control Servo 1
-- **D-Pad Left/Right**: Control Servo 2
+- **Q**: Servo 1 Up
+- **Z**: Servo 1 Down
+- **E**: Servo 2 Up
+- **C**: Servo 2 Down
 
-### System
-- **B Button**: Emergency stop (stops all motors)
-- **BACK Button**: Reconnect controller
-- **START Button**: Quit application
+### GPIO & Lights
+- **1**: Toggle GPIO 1
+- **2**: Toggle GPIO 2
+- **3**: Toggle GPIO 3
+- **4**: Toggle GPIO 4
+- **L**: Toggle Status Lights
+
+### Tips
+- **Keep window focused**: Controls only work when laptop window is active
+- **Smooth control**: Hold keys for continuous movement
+- **Servo precision**: Keys update servo position every 100ms
+- **Customizable**: Edit `laptop_config.json` to remap keys
+
+---
+
+## 🎮 GAME MODES
+
+### Debug Mode (Default)
+- Test your robot freely
+- Full control access
+- No restrictions
+- Use before readying up
+
+### Ready / Waiting Mode
+- After clicking "Ready Up"
+- Robot control disabled
+- Waiting for game to start
+- Can click "Not Ready" to go back to Debug Mode
+
+### Game Active Mode
+- Game has started (GV sent GAME_START)
+- Full control enabled
+- Timer counting down
+- Points tracking active
+- Fire at will!
 
 ---
 
