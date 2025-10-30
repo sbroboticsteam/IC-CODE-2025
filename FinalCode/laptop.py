@@ -10,7 +10,7 @@ import pygame
 import os
 
 # ============ USER CONFIG ============
-PI_IP = "192.168.1.94"    # Your Pi's IP
+PI_IP = "192.168.50.147"    # Your Pi's IP
 PI_PORT = 5005
 
 AUTO_LAUNCH_GSTREAMER = True

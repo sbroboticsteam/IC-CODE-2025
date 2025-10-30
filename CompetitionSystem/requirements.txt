@@ -1,0 +1,26 @@
+# Python Requirements for Laser Tag Competition System
+
+# ==========================================
+# RASPBERRY PI REQUIREMENTS
+# ==========================================
+# Install with: pip3 install -r requirements_pi.txt
+
+pigpio>=1.78
+
+# ==========================================
+# LAPTOP REQUIREMENTS  
+# ==========================================
+# Install with: pip install -r requirements_laptop.txt
+
+pygame>=2.5.0
+
+# ==========================================
+# GAME VIEWER REQUIREMENTS
+# ==========================================
+# Install with: pip install -r requirements_gv.txt
+
+# Tkinter is usually included with Python
+# If not: sudo apt-get install python3-tk (Linux)
+
+# Optional: For PyQt5 version
+# PyQt5>=5.15.0
