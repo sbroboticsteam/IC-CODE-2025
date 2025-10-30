@@ -125,13 +125,15 @@ class GPIOController:
         return self.pi.read(self.gpios[name]['gpio'])
     
     def set_light(self, name: str, state: bool) -> bool:
-        """Set light on/off"""
+        """Set light on/off (INVERTED - Active LOW for ground-connected LEDs)"""
         if name not in self.lights:
             return False
         
         light = self.lights[name]
-        self.pi.write(light['gpio'], 1 if state else 0)
-        light['state'] = 1 if state else 0
+        # Invert: LOW (0) = ON, HIGH (1) = OFF
+        inverted_state = 0 if state else 1
+        self.pi.write(light['gpio'], inverted_state)
+        light['state'] = 1 if state else 0  # Store logical state
         return True
     
     def toggle_light(self, name: str) -> bool:

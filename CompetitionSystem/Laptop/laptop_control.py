@@ -520,6 +520,54 @@ GPIO:
         """Start control sending thread"""
         self.control_thread = threading.Thread(target=self.control_loop, daemon=True)
         self.control_thread.start()
+        
+        # Also start robot status listener
+        self.robot_listener_thread = threading.Thread(target=self.robot_listener_loop, daemon=True)
+        self.robot_listener_thread.start()
+    
+    def robot_listener_loop(self):
+        """Listen for status responses from robot"""
+        # Create a separate socket for receiving
+        listen_sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+        listen_sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+        listen_sock.settimeout(1.0)
+        
+        try:
+            # Bind to any available port
+            listen_sock.bind(('0.0.0.0', 0))
+            local_port = listen_sock.getsockname()[1]
+            print(f"[Robot] Listening for robot responses on port {local_port}")
+        except Exception as e:
+            print(f"[Robot] Failed to bind listener: {e}")
+            return
+        
+        last_response_time = 0
+        
+        while self.running:
+            try:
+                data, addr = listen_sock.recvfrom(4096)
+                message = json.loads(data.decode('utf-8'))
+                
+                # Update connection status
+                current_time = time.time()
+                if current_time - last_response_time > 0.5:  # Only update every 500ms
+                    self.robot_connected = True
+                    last_response_time = current_time
+                
+                # Debug: Print first response
+                if not hasattr(self, '_debug_robot_response'):
+                    self._debug_robot_response = True
+                    print(f"[Robot] ✅ First response received from {addr}")
+                    
+            except socket.timeout:
+                # Check if connection timed out
+                if time.time() - last_response_time > 3.0:
+                    self.robot_connected = False
+                continue
+            except Exception as e:
+                if not hasattr(self, '_debug_listener_error'):
+                    self._debug_listener_error = True
+                    print(f"[Robot] Listener error: {e}")
     
     def control_loop(self):
         """Main control loop - sends commands to robot"""
@@ -740,6 +788,17 @@ GPIO:
         """Update GUI periodically"""
         if not self.running:
             return
+        
+        # Update connection status
+        if self.robot_connected:
+            self.robot_status.config(text="🟢 Robot: Connected", fg='#00ff00')
+        else:
+            self.robot_status.config(text="🔴 Robot: Disconnected", fg='#ff0000')
+        
+        if self.gv_connected:
+            self.gv_status.config(text="🟢 Game Viewer: Connected", fg='#00ff00')
+        else:
+            self.gv_status.config(text="🔴 Game Viewer: Disconnected", fg='#ff0000')
         
         # Update mode
         if self.game_active:

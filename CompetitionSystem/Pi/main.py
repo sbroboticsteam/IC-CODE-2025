@@ -105,6 +105,11 @@ class RobotSystem:
         # Camera streamer
         self.camera_streamer = CameraStreamer(self.config)
         
+        # Start camera stream immediately
+        if self.config['camera'].get('enabled', True):
+            print("[Camera] Starting stream on robot startup...")
+            self.camera_streamer.start_stream()
+        
         # Game client
         self.game_client = GameClient(self.config)
         self.game_client.on_game_start = self.on_game_start

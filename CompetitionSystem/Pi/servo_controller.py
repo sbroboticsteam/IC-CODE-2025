@@ -4,6 +4,7 @@ Servo Controller - Controls two servo channels with 1000-2000us pulses
 """
 
 import pigpio
+import time
 from typing import Dict
 
 class ServoController:
@@ -37,12 +38,23 @@ class ServoController:
                 print(f"[Servo] {name} not configured (GPIO = 0)")
                 continue
             
-            # Setup GPIO for servo
+            # Setup GPIO for servo - CRITICAL: Set mode first!
             self.pi.set_mode(gpio, pigpio.OUTPUT)
+            
+            # IMPORTANT: Stop any existing servo signal first
+            self.pi.set_servo_pulsewidth(gpio, 0)
+            time.sleep(0.1)
             
             # Set to default position
             default_pulse = servo_config.get('default_position', 1500)
             self.pi.set_servo_pulsewidth(gpio, default_pulse)
+            
+            # Verify it's working
+            actual_pulse = self.pi.get_servo_pulsewidth(gpio)
+            if actual_pulse == 0:
+                print(f"[Servo] ⚠️ {name} - Failed to set pulse! Check GPIO {gpio}")
+            else:
+                print(f"[Servo] {name} initialized on GPIO {gpio} - pulse: {actual_pulse}us")
             
             self.servos[name] = {
                 'gpio': gpio,
@@ -68,6 +80,11 @@ class ServoController:
         
         self.pi.set_servo_pulsewidth(servo['gpio'], pulse_width_us)
         servo['current_pulse'] = pulse_width_us
+        
+        # Debug: Print first time servo moves
+        if not hasattr(self, f'_debug_{name}_moved'):
+            setattr(self, f'_debug_{name}_moved', True)
+            print(f"[Servo] {name} moved to {pulse_width_us}us")
         
         return True
     
