@@ -79,7 +79,7 @@
   "extra_gpios": {
     "_comment": "Four configurable GPIO pins for custom use",
     "gpio_1": {
-      "gpio": 0,
+      "gpio": 22,
       "mode": "output",
       "initial_state": 0,
       "pull": "none",
@@ -87,7 +87,7 @@
       "description": "Custom GPIO 1"
     },
     "gpio_2": {
-      "gpio": 0,
+      "gpio": 24,
       "mode": "output",
       "initial_state": 0,
       "pull": "none",
@@ -95,7 +95,7 @@
       "description": "Custom GPIO 2"
     },
     "gpio_3": {
-      "gpio": 0,
+      "gpio": 10,
       "mode": "output",
       "initial_state": 0,
       "pull": "none",
@@ -103,7 +103,7 @@
       "description": "Custom GPIO 3"
     },
     "gpio_4": {
-      "gpio": 0,
+      "gpio": 9,
       "mode": "output",
       "initial_state": 0,
       "pull": "none",
