@@ -7,6 +7,7 @@ Competition Laser Tag Robot - Complete Integration
 import asyncio
 import pigpio
 import signal
+import socket
 import sys
 import time
 import json
@@ -193,56 +194,83 @@ class RobotSystem:
             data, addr = self.laptop_sock.recvfrom(1024)
             message = json.loads(data.decode('utf-8'))
             
-            # Update robot state
-            self.vx = float(message.get('vx', 0))
-            self.vy = float(message.get('vy', 0))
-            self.omega = float(message.get('omega', 0))
-            self.speed = max(0.0, min(1.0, float(message.get('speed', 1.0))))
-            self.estop = bool(message.get('estop', False))
-            self.fire = bool(message.get('fire', False))
+            msg_type = message.get('type', 'CONTROL')
             
-            self.last_cmd_time = time.time()
+            # Debug: Print first message received
+            if not hasattr(self, '_debug_first_msg'):
+                self._debug_first_msg = True
+                print(f"[System] ✅ First laptop message received from {addr}")
+                print(f"[System] Message type: {msg_type}, keys: {list(message.keys())}")
             
-            if 'last_input_time' in message:
-                self.last_input_time = float(message['last_input_time'])
+            # Handle different message types
+            if msg_type == 'HEARTBEAT':
+                self.last_cmd_time = time.time()
+                return
             
-            # Handle servo commands
-            if 'servo_1' in message:
-                self.servo_controller.set_servo_normalized('servo_1', message['servo_1'])
-            if 'servo_2' in message:
-                self.servo_controller.set_servo_normalized('servo_2', message['servo_2'])
-            
-            # Handle GPIO commands
-            if 'gpio_commands' in message:
-                for gpio_name, value in message['gpio_commands'].items():
-                    self.gpio_controller.set_gpio(gpio_name, value)
-            
-            # Handle light commands
-            if 'light_commands' in message:
-                for light_name, state in message['light_commands'].items():
-                    self.gpio_controller.set_light(light_name, state)
-            
-            # Fire weapon
-            if self.fire:
-                self.ir_controller.fire()
-            
-            # Exit standby if movement detected
-            if self.in_standby and (abs(self.vx) > 0.05 or abs(self.vy) > 0.05 or 
-                                   abs(self.omega) > 0.05 or self.estop):
-                if not self.ir_controller.is_hit:
-                    self.motor_controller.exit_standby()
-                    self.in_standby = False
-            
-            # Send status back to laptop
-            response = {
-                "ir_status": self.ir_controller.get_status(),
-                "game_status": self.game_client.get_status(),
-                "camera_active": self.camera_streamer.is_alive()
-            }
-            
-            self.laptop_sock.sendto(json.dumps(response).encode('utf-8'), addr)
+            elif msg_type == 'CONTROL':
+                # Update robot state - NEW FORMAT from WASD laptop
+                self.vx = float(message.get('vx', 0))
+                self.vy = float(message.get('vy', 0))
+                self.omega = float(message.get('vr', 0))  # NEW: vr instead of omega
+                self.speed = max(0.0, min(1.0, float(message.get('speed', 1.0))))
+                self.estop = bool(message.get('estop', False))
+                self.fire = bool(message.get('fire', False))
+                
+                self.last_cmd_time = time.time()
+                self.last_input_time = time.time()
+                
+                # Handle servo commands - NEW FORMAT
+                if 'servo1' in message:
+                    self.servo_controller.set_servo_normalized('servo_1', message['servo1'])
+                if 'servo2' in message:
+                    self.servo_controller.set_servo_normalized('servo_2', message['servo2'])
+                
+                # Handle GPIO commands - NEW FORMAT (array instead of dict)
+                if 'gpio' in message:
+                    gpio_states = message['gpio']
+                    if isinstance(gpio_states, list) and len(gpio_states) >= 4:
+                        self.gpio_controller.set_gpio('gpio_1', 1 if gpio_states[0] else 0)
+                        self.gpio_controller.set_gpio('gpio_2', 1 if gpio_states[1] else 0)
+                        self.gpio_controller.set_gpio('gpio_3', 1 if gpio_states[2] else 0)
+                        self.gpio_controller.set_gpio('gpio_4', 1 if gpio_states[3] else 0)
+                
+                # Handle light commands - NEW FORMAT (single boolean)
+                if 'lights' in message:
+                    lights_on = bool(message['lights'])
+                    self.gpio_controller.set_light('d1', lights_on)
+                    self.gpio_controller.set_light('d2', lights_on)
+                
+                # Fire weapon
+                if self.fire:
+                    self.ir_controller.fire()
+                
+                # Exit standby if movement detected
+                if self.in_standby and (abs(self.vx) > 0.05 or abs(self.vy) > 0.05 or 
+                                       abs(self.omega) > 0.05 or self.estop):
+                    if not self.ir_controller.is_hit:
+                        self.motor_controller.exit_standby()
+                        self.in_standby = False
+                
+                # Send status back to laptop
+                response = {
+                    "type": "STATUS",
+                    "ir_status": self.ir_controller.get_status(),
+                    "game_status": self.game_client.get_status(),
+                    "camera_active": self.camera_streamer.is_alive()
+                }
+                
+                self.laptop_sock.sendto(json.dumps(response).encode('utf-8'), addr)
         
-        except Exception:
+        except socket.timeout:
+            # Normal - no data available
+            pass
+        except Exception as e:
+            # Only print first error to avoid spam
+            if not hasattr(self, '_debug_error_printed'):
+                self._debug_error_printed = True
+                print(f"[System] ⚠️ Error processing laptop command: {e}")
+                import traceback
+                traceback.print_exc()
             pass
     
     async def control_loop(self):

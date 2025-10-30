@@ -576,6 +576,15 @@ GPIO:
             robot_ip = self.config.get('robot_ip')
             robot_port = self.config.get('robot_port')
             self.robot_sock.sendto(data, (robot_ip, robot_port))
+            
+            # Debug: Print first message of each type
+            msg_type = message.get('type', 'UNKNOWN')
+            if not hasattr(self, '_debug_sent_types'):
+                self._debug_sent_types = set()
+            if msg_type not in self._debug_sent_types:
+                self._debug_sent_types.add(msg_type)
+                print(f"[Network] First {msg_type} sent to {robot_ip}:{robot_port}")
+                
         except Exception as e:
             print(f"[Network] Failed to send to robot: {e}")
     
