@@ -478,12 +478,9 @@ class GameViewer:
         results_text.config(state=tk.DISABLED)
     
     def broadcast_message(self, message: dict):
-        """Broadcast message to all teams"""
-        for team in self.teams.values():
-            try:
-                self.sock.sendto(json.dumps(message).encode('utf-8'), team['addr'])
-            except Exception as e:
-                print(f"[GV] Failed to send to team {team['team_id']}: {e}")
+        """Broadcast message to all teams' laptops"""
+        for team_id in self.teams.keys():
+            self.send_to_team(team_id, message)
     
     def export_log(self):
         """Export game log to file"""
