@@ -564,16 +564,17 @@ class GameViewer:
                 # Launch GStreamer button
                 def make_launch_func(port, name):
                     def launch():
-                        # Use the working GStreamer command with proper RTP caps
+                        # Cross-platform GStreamer command (works on Ubuntu and Windows)
                         cmd = [
                             'gst-launch-1.0', '-v',
-                            f'udpsrc port={port}',
-                            'caps=application/x-rtp,media=video,encoding-name=H264,payload=96,clock-rate=90000,packetization-mode=1',
-                            '!', 'rtpjitterbuffer', 'latency=50',
-                            '!', 'rtph264depay',
-                            '!', 'h264parse',
-                            '!', 'd3d11h264dec',
-                            '!', 'autovideosink', 'sync=false'
+                            f'udpsrc', f'port={port}',
+                            'caps=application/x-rtp,media=(string)video,clock-rate=(int)90000,encoding-name=(string)H264,payload=(int)96',
+                            '/', 'rtpjitterbuffer', 'latency=50',
+                            '/', 'rtph264depay',
+                            '/', 'h264parse',
+                            '/', 'avdec_h264',  # Cross-platform decoder
+                            '/', 'videoconvert',
+                            '/', 'autovideosink', 'sync=false'
                         ]
                         try:
                             proc = subprocess.Popen(cmd)

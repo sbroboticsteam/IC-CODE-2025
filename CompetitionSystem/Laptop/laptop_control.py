@@ -656,7 +656,7 @@ GPIO:
             print(f"[GV] Failed to bind listener: {e}")
             return
         
-        last_gv_message_time = 0
+        last_gv_message_time = time.time()  # Start with current time, not 0
         
         while self.running:
             try:
@@ -665,14 +665,18 @@ GPIO:
                 
                 # Update GV connection status
                 current_time = time.time()
-                if current_time - last_gv_message_time > 0.5:
-                    self.gv_connected = True
-                    last_gv_message_time = current_time
+                self.gv_connected = True
+                last_gv_message_time = current_time
+                
+                # Debug: Print first GV message
+                if not hasattr(self, '_debug_gv_msg'):
+                    self._debug_gv_msg = True
+                    print(f"[GV] ✅ First message received from {addr}")
                 
                 self.handle_gv_message(message)
             except socket.timeout:
-                # Check if GV connection timed out
-                if time.time() - last_gv_message_time > 3.0:
+                # Check if GV connection timed out (no messages for 3+ seconds)
+                if last_gv_message_time > 0 and time.time() - last_gv_message_time > 3.0:
                     self.gv_connected = False
                 continue
             except Exception as e:
