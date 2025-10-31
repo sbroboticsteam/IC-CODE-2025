@@ -147,7 +147,11 @@ class GameViewer:
                                       width=15, state=tk.DISABLED)
         self.end_game_btn.pack(pady=2)
         
-        tk.Button(btn_frame, text="💾 Export Log",
+        tk.Button(btn_frame, text="� View Cameras",
+                 command=self.open_camera_viewer,
+                 font=('Arial', 10), bg='#9C27B0', fg='white', width=15).pack(pady=2)
+        
+        tk.Button(btn_frame, text="�💾 Export Log",
                  command=self.export_log,
                  font=('Arial', 10), bg='#2196F3', fg='white', width=15).pack(pady=2)
         
@@ -503,6 +507,103 @@ class GameViewer:
         
         # Schedule next update
         self.root.after(100, self.update_gui)
+    
+    def open_camera_viewer(self):
+        """Open 4-camera security monitor view"""
+        import subprocess
+        
+        # Get team IDs to display (first 4 registered teams)
+        team_ids = sorted(list(self.teams.keys()))[:4]
+        
+        if len(team_ids) == 0:
+            messagebox.showinfo("No Cameras", "No robots connected yet.\nWait for robots to register first.")
+            return
+        
+        # Create camera viewer window
+        cam_window = tk.Toplevel(self.root)
+        cam_window.title("📹 Security Camera Monitor - 4 Feeds")
+        cam_window.geometry("1280x720")
+        cam_window.configure(bg='#000000')
+        
+        # Title
+        tk.Label(cam_window, text="📹 LIVE CAMERA FEEDS", font=('Arial', 20, 'bold'),
+                bg='#000000', fg='#00ff00').pack(pady=10)
+        
+        # Create 2x2 grid for cameras
+        grid_frame = tk.Frame(cam_window, bg='#000000')
+        grid_frame.pack(fill=tk.BOTH, expand=True, padx=10, pady=10)
+        
+        # Configure grid to be 2x2
+        grid_frame.grid_rowconfigure(0, weight=1)
+        grid_frame.grid_rowconfigure(1, weight=1)
+        grid_frame.grid_columnconfigure(0, weight=1)
+        grid_frame.grid_columnconfigure(1, weight=1)
+        
+        # Launch GStreamer windows for each team
+        gst_processes = []
+        positions = [(0, 0), (0, 1), (1, 0), (1, 1)]
+        
+        for idx, (row, col) in enumerate(positions):
+            frame = tk.Frame(grid_frame, bg='#1a1a1a', highlightbackground='#00ff00',
+                            highlightthickness=2)
+            frame.grid(row=row, column=col, sticky='nsew', padx=5, pady=5)
+            
+            if idx < len(team_ids):
+                team_id = team_ids[idx]
+                team = self.teams[team_id]
+                video_port = team['video_port']
+                
+                # Team label
+                tk.Label(frame, text=f"🤖 {team['team_name']} (ID: {team_id})",
+                        font=('Arial', 14, 'bold'), bg='#1a1a1a', fg='#00ff00').pack(pady=5)
+                
+                # Stream info
+                tk.Label(frame, text=f"UDP Port: {video_port}",
+                        font=('Courier', 10), bg='#1a1a1a', fg='cyan').pack()
+                
+                # Launch GStreamer button
+                def make_launch_func(port, name):
+                    def launch():
+                        cmd = [
+                            'gst-launch-1.0',
+                            f'udpsrc port={port}',
+                            'caps=application/x-rtp,media=video,encoding-name=H264',
+                            '!', 'rtph264depay',
+                            '!', 'avdec_h264',
+                            '!', 'autovideosink'
+                        ]
+                        try:
+                            proc = subprocess.Popen(cmd)
+                            gst_processes.append(proc)
+                            print(f"[Camera] Launched viewer for {name} on port {port}")
+                        except Exception as e:
+                            messagebox.showerror("GStreamer Error",
+                                               f"Failed to launch camera viewer:\n{e}\n\n" +
+                                               "Make sure GStreamer is installed.")
+                    return launch
+                
+                btn = tk.Button(frame, text="▶️ Open Camera Feed",
+                               command=make_launch_func(video_port, team['team_name']),
+                               bg='#4CAF50', fg='white', font=('Arial', 11), width=20, height=2)
+                btn.pack(pady=10)
+                
+                # Status indicator
+                status = "🟢 Online" if team['last_heartbeat'] > time.time() - 5 else "🔴 Offline"
+                tk.Label(frame, text=status, font=('Arial', 10), bg='#1a1a1a', fg='white').pack(pady=5)
+            else:
+                # Empty slot
+                tk.Label(frame, text="No Robot", font=('Arial', 14), bg='#1a1a1a', fg='#666666').pack(expand=True)
+        
+        # Cleanup function
+        def on_close():
+            for proc in gst_processes:
+                try:
+                    proc.terminate()
+                except:
+                    pass
+            cam_window.destroy()
+        
+        cam_window.protocol("WM_DELETE_WINDOW", on_close)
     
     def open_settings(self):
         """Open settings dialog"""

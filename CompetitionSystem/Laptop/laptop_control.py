@@ -639,15 +639,15 @@ GPIO:
     
     def gv_listener_loop(self):
         """Listen for messages from Game Viewer"""
-        # Bind to a local port for receiving GV messages
+        # Bind to a fixed port for receiving GV messages
         listen_sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
         listen_sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
         listen_sock.settimeout(1.0)
         
         try:
-            # Listen on any available port (teams don't need fixed ports)
-            listen_sock.bind(('0.0.0.0', 0))
-            local_port = listen_sock.getsockname()[1]
+            # Use fixed port from config (different from robot's 6000)
+            local_port = self.config.get('laptop_listen_port', 6100)
+            listen_sock.bind(('0.0.0.0', local_port))
             print(f"[GV] Listening on port {local_port}")
             
             # Register with Game Viewer
@@ -656,12 +656,24 @@ GPIO:
             print(f"[GV] Failed to bind listener: {e}")
             return
         
+        last_gv_message_time = 0
+        
         while self.running:
             try:
                 data, addr = listen_sock.recvfrom(4096)
                 message = json.loads(data.decode('utf-8'))
+                
+                # Update GV connection status
+                current_time = time.time()
+                if current_time - last_gv_message_time > 0.5:
+                    self.gv_connected = True
+                    last_gv_message_time = current_time
+                
                 self.handle_gv_message(message)
             except socket.timeout:
+                # Check if GV connection timed out
+                if time.time() - last_gv_message_time > 3.0:
+                    self.gv_connected = False
                 continue
             except Exception as e:
                 print(f"[GV] Listener error: {e}")
@@ -693,8 +705,18 @@ GPIO:
         msg_type = message.get('type')
         
         if msg_type == 'READY_CHECK':
-            print("[GV] Received ready check")
-            # GV is asking if we're ready
+            print(f"[GV] Received ready check - Current status: {self.ready_status}")
+            # Only respond if we're actually ready
+            if self.ready_status:
+                response = {
+                    'type': 'READY_RESPONSE',
+                    'team_id': self.config.get('team_id'),
+                    'ready': True
+                }
+                self.send_to_gv(response)
+                print("[GV] Sent READY response")
+            else:
+                print("[GV] Not ready - no response sent")
             
         elif msg_type == 'GAME_START':
             print("[GV] GAME STARTING!")

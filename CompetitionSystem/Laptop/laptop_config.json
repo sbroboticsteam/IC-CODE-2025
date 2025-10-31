@@ -1,8 +1,9 @@
 {
   "robot_ip": "192.168.50.147",
   "robot_port": 5005,
-  "gv_ip": "192.168.50.143",
+  "gv_ip": "192.168.50.87",
   "gv_port": 6000,
+  "laptop_listen_port": 6100,
   "video_port": 5100,
   "team_id": 1,
   "team_name": "Admin",
