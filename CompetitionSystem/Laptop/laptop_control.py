@@ -646,7 +646,7 @@ GPIO:
         
         try:
             # Use fixed port from config (different from robot's 6000)
-            local_port = self.config.get('laptop_listen_port', 6100)
+            local_port = self.config.get('laptop_listen_port') or 6100
             listen_sock.bind(('0.0.0.0', local_port))
             print(f"[GV] Listening on port {local_port}")
             

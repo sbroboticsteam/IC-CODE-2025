@@ -184,9 +184,9 @@ class RobotSystem:
             self.gpio_controller.set_light('d2', False)
     
     def on_ready_check(self):
-        """Called when GV asks if ready"""
-        print("[System] 📢 Ready check received - auto-responding ready")
-        self.game_client.send_ready(True)
+        """Called when GV asks if ready - Pi should NOT respond, laptop handles this"""
+        print("[System] 📢 Ready check received - laptop will respond")
+        # Do NOT auto-respond - let the laptop handle ready checks
     
     def on_points_update(self, points: int):
         """Called when points are updated"""
