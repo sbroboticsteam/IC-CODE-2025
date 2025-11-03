@@ -19,9 +19,14 @@ from datetime import datetime
 GV_CONFIG = {
     "gv_ip": "0.0.0.0",  # Listen on all interfaces
     "gv_port": 6000,
+    "referee_port": 6700,  # Port for referee web interface
     "max_teams": 8,
     "game_duration": 120,  # 2 minutes (configurable)
-    "points_per_hit": 100,
+    "points_per_hit": 10,  # IR hit points (One Shot, One Kill)
+    "points_tesseract_retrieval": 15,  # First capture of Tesseract
+    "points_tesseract_steal": 20,  # Stealing from another Safe Zone
+    "points_tesseract_possession": 30,  # Tesseract in Safe Zone at end
+    "robot_disable_duration": 10,  # Seconds robot is disabled after hit
     "video_ports_start": 5001  # Team 1 = 5001, Team 2 = 5002, etc.
 }
 
@@ -45,6 +50,10 @@ class GameViewer:
         self.game_active = False
         self.game_start_time = 0
         self.game_time_remaining = 0
+        self.game_ended_time = 0  # Track when game ended
+        
+        # Disabled robots tracking (team_id -> disable_end_time)
+        self.disabled_robots: Dict[int, float] = {}
         
         # Network
         self.sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
@@ -74,6 +83,9 @@ class GameViewer:
         # Start heartbeat sender
         self.start_heartbeat_thread()
         
+        # Start referee web server
+        self.start_referee_server()
+        
         # Start update loop
         self.update_gui()
         
@@ -81,14 +93,19 @@ class GameViewer:
         self.root.protocol("WM_DELETE_WINDOW", self.on_closing)
     
     def load_config(self):
-        """Load configuration"""
+        """Load configuration and merge with defaults"""
+        config = GV_CONFIG.copy()
+        
         if os.path.exists(CONFIG_FILE):
             try:
                 with open(CONFIG_FILE, 'r') as f:
-                    return json.load(f)
-            except:
-                pass
-        return GV_CONFIG.copy()
+                    loaded = json.load(f)
+                    # Merge loaded config with defaults (defaults get overwritten)
+                    config.update(loaded)
+            except Exception as e:
+                print(f"[GV] Error loading config: {e}")
+        
+        return config
     
     def save_config(self):
         """Save configuration"""
@@ -246,6 +263,392 @@ class GameViewer:
                 if self.running:
                     print(f"[GV] Heartbeat error: {e}")
     
+    def start_referee_server(self):
+        """Start HTTP server for referee interface"""
+        from http.server import HTTPServer, BaseHTTPRequestHandler
+        import urllib.parse
+        
+        game_viewer = self
+        
+        class RefereeHandler(BaseHTTPRequestHandler):
+            def log_message(self, format, *args):
+                pass  # Suppress default logging
+            
+            def do_GET(self):
+                """Serve referee web interface"""
+                if self.path == '/' or self.path == '/index.html':
+                    self.send_response(200)
+                    self.send_header('Content-type', 'text/html')
+                    self.end_headers()
+                    
+                    html = self.generate_referee_page()
+                    self.wfile.write(html.encode('utf-8'))
+                
+                elif self.path == '/api/teams':
+                    # API to get team data
+                    self.send_response(200)
+                    self.send_header('Content-type', 'application/json')
+                    self.send_header('Access-Control-Allow-Origin', '*')
+                    self.end_headers()
+                    
+                    teams_data = {
+                        'teams': {tid: {
+                            'team_id': t['team_id'],
+                            'team_name': t['team_name'],
+                            'points': t['points'],
+                            'kills': t['kills'],
+                            'deaths': t['deaths']
+                        } for tid, t in game_viewer.teams.items()},
+                        'game_active': game_viewer.game_active,
+                        'can_award_points': game_viewer.game_active or (
+                            hasattr(game_viewer, 'game_ended_time') and 
+                            game_viewer.game_ended_time > 0 and 
+                            time.time() - game_viewer.game_ended_time < 300  # 5 min grace period
+                        )
+                    }
+                    self.wfile.write(json.dumps(teams_data).encode('utf-8'))
+                
+                else:
+                    self.send_response(404)
+                    self.end_headers()
+            
+            def do_POST(self):
+                """Handle point awards from referee"""
+                if self.path == '/api/award_points':
+                    content_length = int(self.headers['Content-Length'])
+                    post_data = self.rfile.read(content_length)
+                    data = json.loads(post_data.decode('utf-8'))
+                    
+                    team_id = data.get('team_id')
+                    category = data.get('category')
+                    
+                    if team_id in game_viewer.teams:
+                        # Award points based on category
+                        if category == 'tesseract_retrieval':
+                            points = game_viewer.config['points_tesseract_retrieval']
+                            game_viewer.teams[team_id]['points'] += points
+                            log_msg = f"Tesseract Retrieval: +{points} pts"
+                        elif category == 'tesseract_steal':
+                            points = game_viewer.config['points_tesseract_steal']
+                            game_viewer.teams[team_id]['points'] += points
+                            log_msg = f"Tesseract Steal: +{points} pts"
+                        elif category == 'tesseract_possession':
+                            points = game_viewer.config['points_tesseract_possession']
+                            game_viewer.teams[team_id]['points'] += points
+                            log_msg = f"Tesseract Possession Bonus: +{points} pts"
+                        else:
+                            self.send_response(400)
+                            self.end_headers()
+                            return
+                        
+                        # Log the award
+                        timestamp = datetime.now().strftime("%H:%M:%S")
+                        log_entry = f"[{timestamp}] REFEREE: {game_viewer.teams[team_id]['team_name']} - {log_msg}"
+                        game_viewer.hit_log_text.insert(tk.END, log_entry + "\n")
+                        game_viewer.hit_log_text.see(tk.END)
+                        
+                        # Send points update to team
+                        game_viewer.send_points_update(team_id)
+                        
+                        print(f"[Referee] {log_entry}")
+                        
+                        self.send_response(200)
+                        self.send_header('Content-type', 'application/json')
+                        self.end_headers()
+                        self.wfile.write(json.dumps({'success': True}).encode('utf-8'))
+                    else:
+                        self.send_response(404)
+                        self.end_headers()
+                else:
+                    self.send_response(404)
+                    self.end_headers()
+            
+            def generate_referee_page(self):
+                """Generate mobile-friendly referee interface"""
+                return '''<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>Referee Control Panel</title>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Arial, sans-serif;
+            background: linear-gradient(135deg, #1a1a2e 0%, #16213e 100%);
+            color: white;
+            min-height: 100vh;
+            padding: 10px;
+        }
+        .header {
+            background: rgba(0,255,0,0.1);
+            padding: 15px;
+            border-radius: 10px;
+            margin-bottom: 20px;
+            text-align: center;
+            border: 2px solid #00ff00;
+        }
+        .header h1 { font-size: 24px; color: #00ff00; margin-bottom: 5px; }
+        .status { font-size: 14px; color: #ffd700; margin-top: 5px; }
+        .teams-grid {
+            display: grid;
+            grid-template-columns: 1fr;
+            gap: 15px;
+            margin-bottom: 20px;
+        }
+        .team-card {
+            background: rgba(255,255,255,0.05);
+            border-radius: 12px;
+            padding: 15px;
+            border: 2px solid rgba(0,255,0,0.3);
+            transition: all 0.3s;
+        }
+        .team-card.selected {
+            border-color: #00ff00;
+            background: rgba(0,255,0,0.15);
+            transform: scale(1.02);
+        }
+        .team-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 10px;
+        }
+        .team-name { font-size: 18px; font-weight: bold; color: #00ff00; }
+        .team-points { font-size: 24px; font-weight: bold; color: #ffd700; }
+        .team-stats {
+            font-size: 12px;
+            color: #aaa;
+            margin-top: 5px;
+        }
+        .action-buttons {
+            display: none;
+            grid-template-columns: 1fr;
+            gap: 10px;
+            margin-top: 15px;
+            padding-top: 15px;
+            border-top: 1px solid rgba(255,255,255,0.1);
+        }
+        .team-card.selected .action-buttons { display: grid; }
+        .btn {
+            padding: 15px;
+            border: none;
+            border-radius: 8px;
+            font-size: 16px;
+            font-weight: bold;
+            cursor: pointer;
+            transition: all 0.2s;
+            text-align: center;
+        }
+        .btn:active { transform: scale(0.95); }
+        .btn-retrieval {
+            background: linear-gradient(135deg, #4CAF50 0%, #45a049 100%);
+            color: white;
+        }
+        .btn-steal {
+            background: linear-gradient(135deg, #FF9800 0%, #F57C00 100%);
+            color: white;
+        }
+        .btn-possession {
+            background: linear-gradient(135deg, #2196F3 0%, #1976D2 100%);
+            color: white;
+        }
+        .refresh-btn {
+            width: 100%;
+            padding: 15px;
+            background: rgba(0,255,0,0.2);
+            color: #00ff00;
+            border: 2px solid #00ff00;
+            border-radius: 10px;
+            font-size: 16px;
+            font-weight: bold;
+            cursor: pointer;
+            margin-bottom: 10px;
+        }
+        .notification {
+            position: fixed;
+            top: 20px;
+            left: 50%;
+            transform: translateX(-50%);
+            background: rgba(0,255,0,0.95);
+            color: black;
+            padding: 15px 30px;
+            border-radius: 10px;
+            font-weight: bold;
+            display: none;
+            z-index: 1000;
+            box-shadow: 0 4px 20px rgba(0,255,0,0.5);
+        }
+        .offline {
+            background: rgba(255,0,0,0.2);
+            border: 2px solid #ff0000;
+            padding: 15px;
+            border-radius: 10px;
+            text-align: center;
+            color: #ff0000;
+            margin-bottom: 20px;
+        }
+    </style>
+</head>
+<body>
+    <div id="notification" class="notification"></div>
+    
+    <div class="header">
+        <h1>🎯 REFEREE CONTROL PANEL</h1>
+        <div class="status" id="status">Loading...</div>
+    </div>
+    
+    <div id="offline-notice" class="offline" style="display: none;">
+        ⚠️ Point awarding is disabled<br>
+        <small>Game must be active or recently ended</small>
+    </div>
+    
+    <button class="refresh-btn" onclick="loadTeams()">🔄 Refresh Teams</button>
+    
+    <div class="teams-grid" id="teams-grid">
+        <div style="text-align: center; padding: 40px; color: #666;">
+            Loading teams...
+        </div>
+    </div>
+    
+    <script>
+        let selectedTeam = null;
+        let canAwardPoints = false;
+        
+        function loadTeams() {
+            fetch('/api/teams')
+                .then(r => r.json())
+                .then(data => {
+                    canAwardPoints = data.can_award_points;
+                    const grid = document.getElementById('teams-grid');
+                    const status = document.getElementById('status');
+                    const offlineNotice = document.getElementById('offline-notice');
+                    
+                    if (data.game_active) {
+                        status.textContent = '🟢 GAME ACTIVE';
+                        status.style.color = '#00ff00';
+                    } else {
+                        status.textContent = '⏸️ Game Not Active';
+                        status.style.color = '#ffd700';
+                    }
+                    
+                    offlineNotice.style.display = canAwardPoints ? 'none' : 'block';
+                    
+                    if (Object.keys(data.teams).length === 0) {
+                        grid.innerHTML = '<div style="text-align: center; padding: 40px; color: #666;">No teams connected</div>';
+                        return;
+                    }
+                    
+                    grid.innerHTML = '';
+                    for (const [tid, team] of Object.entries(data.teams)) {
+                        const card = document.createElement('div');
+                        card.className = 'team-card';
+                        card.onclick = () => selectTeam(tid);
+                        
+                        card.innerHTML = `
+                            <div class="team-header">
+                                <div class="team-name">Team ${tid}: ${team.team_name}</div>
+                                <div class="team-points">${team.points} pts</div>
+                            </div>
+                            <div class="team-stats">K: ${team.kills} | D: ${team.deaths}</div>
+                            <div class="action-buttons">
+                                <button class="btn btn-retrieval" onclick="awardPoints(${tid}, 'tesseract_retrieval', event)">
+                                    📦 Tesseract Retrieval<br><small>+15 points</small>
+                                </button>
+                                <button class="btn btn-steal" onclick="awardPoints(${tid}, 'tesseract_steal', event)">
+                                    🎯 Tesseract Steal<br><small>+20 points</small>
+                                </button>
+                                <button class="btn btn-possession" onclick="awardPoints(${tid}, 'tesseract_possession', event)">
+                                    👑 Possession Bonus<br><small>+30 points</small>
+                                </button>
+                            </div>
+                        `;
+                        grid.appendChild(card);
+                    }
+                })
+                .catch(err => {
+                    console.error('Error loading teams:', err);
+                    document.getElementById('status').textContent = '❌ Connection Error';
+                });
+        }
+        
+        function selectTeam(tid) {
+            if (!canAwardPoints) return;
+            
+            const cards = document.querySelectorAll('.team-card');
+            cards.forEach(card => card.classList.remove('selected'));
+            event.currentTarget.classList.add('selected');
+            selectedTeam = tid;
+        }
+        
+        function awardPoints(teamId, category, event) {
+            event.stopPropagation();
+            
+            if (!canAwardPoints) {
+                showNotification('⚠️ Point awarding disabled');
+                return;
+            }
+            
+            fetch('/api/award_points', {
+                method: 'POST',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify({team_id: parseInt(teamId), category: category})
+            })
+            .then(r => r.json())
+            .then(data => {
+                if (data.success) {
+                    const names = {
+                        'tesseract_retrieval': 'Tesseract Retrieval',
+                        'tesseract_steal': 'Tesseract Steal',
+                        'tesseract_possession': 'Possession Bonus'
+                    };
+                    showNotification(`✅ ${names[category]} awarded!`);
+                    setTimeout(() => loadTeams(), 500);
+                }
+            })
+            .catch(err => {
+                console.error('Error awarding points:', err);
+                showNotification('❌ Failed to award points');
+            });
+        }
+        
+        function showNotification(message) {
+            const notif = document.getElementById('notification');
+            notif.textContent = message;
+            notif.style.display = 'block';
+            setTimeout(() => {
+                notif.style.display = 'none';
+            }, 2000);
+        }
+        
+        // Auto-refresh every 2 seconds
+        setInterval(loadTeams, 2000);
+        loadTeams();
+    </script>
+</body>
+</html>'''
+        
+        def run_server():
+            try:
+                server = HTTPServer(('0.0.0.0', game_viewer.config['referee_port']), RefereeHandler)
+                server.timeout = 0.5  # Short timeout to allow checking game_viewer.running
+                print(f"[Referee] Web interface started on port {game_viewer.config['referee_port']}")
+                print(f"[Referee] Access at: http://192.168.50.87:{game_viewer.config['referee_port']}")
+                
+                # Serve forever with periodic checks
+                server.serve_forever()
+            except Exception as e:
+                print(f"[Referee] Server error: {e}")
+            finally:
+                try:
+                    server.shutdown()
+                    server.server_close()
+                except:
+                    pass
+        
+        thread = threading.Thread(target=run_server, daemon=True)
+        thread.start()
+    
     def network_loop(self):
         """Network listener loop"""
         while self.running:
@@ -330,9 +733,16 @@ class GameViewer:
         # Record death for defender
         self.teams[defender_id]['deaths'] += 1
         
-        # Add to hit log
+        # Mark defender as disabled for configured duration
+        disable_until = time.time() + self.config['robot_disable_duration']
+        self.disabled_robots[defender_id] = disable_until
+        
+        # Add to hit log with timestamp
         timestamp = datetime.now().strftime("%H:%M:%S")
-        log_entry = f"[{timestamp}] {self.teams[attacker_id]['team_name']} HIT {self.teams[defender_id]['team_name']}"
+        log_entry = f"[{timestamp}] {self.teams[attacker_id]['team_name']} HIT {self.teams[defender_id]['team_name']} (Disabled for {self.config['robot_disable_duration']}s)"
+        
+        # Store hit with timestamp
+        hit_data['timestamp'] = timestamp
         self.hit_log.append(hit_data)
         
         self.hit_log_text.insert(tk.END, log_entry + "\n")
@@ -342,7 +752,7 @@ class GameViewer:
         self.send_points_update(attacker_id)
         self.send_points_update(defender_id)
         
-        print(f"[GV] Hit: Team {attacker_id} → Team {defender_id}")
+        print(f"[GV] Hit: Team {attacker_id} → Team {defender_id} (disabled until {disable_until})")
     
     def send_to_team(self, team_id: int, message: dict):
         """Send message to a specific team's laptop"""
@@ -388,17 +798,137 @@ class GameViewer:
         print("[GV] Sent ready check")
     
     def start_game(self):
-        """Start the game"""
+        """Start the game with team selection"""
         # Check if any teams are connected
         if not self.teams:
             messagebox.showwarning("No Teams", "No teams are connected!")
             return
         
+        # Open team selection dialog
+        self.open_team_selection_dialog()
+    
+    def open_team_selection_dialog(self):
+        """Open dialog to select teams for the match"""
+        selection_dialog = tk.Toplevel(self.root)
+        selection_dialog.title("🎮 Select Teams for Match")
+        selection_dialog.geometry("500x500")
+        selection_dialog.configure(bg='#2a2a2a')
+        selection_dialog.transient(self.root)
+        selection_dialog.grab_set()
+        
+        # Title
+        tk.Label(selection_dialog, text="Select Teams for Match (1-4 teams)",
+                font=('Arial', 16, 'bold'), bg='#2a2a2a', fg='#00ff00').pack(pady=15)
+        
+        tk.Label(selection_dialog, text="Select which teams will participate in this round:",
+                font=('Arial', 11), bg='#2a2a2a', fg='white').pack(pady=5)
+        
+        # Scrollable frame for team checkboxes
+        canvas = tk.Canvas(selection_dialog, bg='#2a2a2a', highlightthickness=0, height=250)
+        scrollbar = tk.Scrollbar(selection_dialog, orient="vertical", command=canvas.yview)
+        scrollable_frame = tk.Frame(canvas, bg='#2a2a2a')
+        
+        scrollable_frame.bind(
+            "<Configure>",
+            lambda e: canvas.configure(scrollregion=canvas.bbox("all"))
+        )
+        
+        canvas.create_window((0, 0), window=scrollable_frame, anchor="nw")
+        canvas.configure(yscrollcommand=scrollbar.set)
+        
+        canvas.pack(side=tk.LEFT, fill=tk.BOTH, expand=True, padx=20, pady=10)
+        scrollbar.pack(side=tk.RIGHT, fill=tk.Y, pady=10)
+        
+        # Create checkboxes for each team
+        team_vars = {}
+        sorted_teams = sorted(self.teams.items(), key=lambda x: x[0])
+        
+        for team_id, team in sorted_teams:
+            frame = tk.Frame(scrollable_frame, bg='#3a3a3a', relief=tk.RAISED, borderwidth=1)
+            frame.pack(fill=tk.X, pady=3, padx=5)
+            
+            var = tk.BooleanVar(value=False)
+            team_vars[team_id] = var
+            
+            ready_icon = "✅" if team['ready'] else "⏳"
+            status = "🟢" if time.time() - team['last_heartbeat'] < 5 else "🔴"
+            
+            cb = tk.Checkbutton(
+                frame,
+                text=f"{ready_icon} {status} Team {team_id}: {team['team_name']} ({team['robot_name']})",
+                variable=var,
+                font=('Arial', 11),
+                bg='#3a3a3a',
+                fg='white',
+                selectcolor='#2a2a2a',
+                activebackground='#3a3a3a',
+                activeforeground='white'
+            )
+            cb.pack(anchor=tk.W, padx=10, pady=5)
+        
+        # Error label
+        error_label = tk.Label(selection_dialog, text="",
+                              font=('Arial', 10), bg='#2a2a2a', fg='red')
+        error_label.pack(pady=5)
+        
+        # Match name entry
+        name_frame = tk.Frame(selection_dialog, bg='#2a2a2a')
+        name_frame.pack(pady=10)
+        
+        tk.Label(name_frame, text="Match Name (optional):",
+                font=('Arial', 11), bg='#2a2a2a', fg='white').pack(side=tk.LEFT, padx=5)
+        
+        match_name_var = tk.StringVar(value=f"match_{datetime.now().strftime('%Y%m%d_%H%M%S')}")
+        match_name_entry = tk.Entry(name_frame, textvariable=match_name_var,
+                                    font=('Arial', 11), width=30,
+                                    bg='#3a3a3a', fg='white', insertbackground='white')
+        match_name_entry.pack(side=tk.LEFT, padx=5)
+        
+        # Buttons
+        btn_frame = tk.Frame(selection_dialog, bg='#2a2a2a')
+        btn_frame.pack(pady=15)
+        
+        def start_selected_game():
+            # Get selected teams
+            selected_teams = [tid for tid, var in team_vars.items() if var.get()]
+            
+            if len(selected_teams) == 0:
+                error_label.config(text="❌ Please select at least 1 team!")
+                return
+            
+            if len(selected_teams) > 4:
+                error_label.config(text="❌ Maximum 4 teams allowed!")
+                return
+            
+            # Store match name for later
+            self.current_match_name = match_name_var.get().strip()
+            if not self.current_match_name:
+                self.current_match_name = f"match_{datetime.now().strftime('%Y%m%d_%H%M%S')}"
+            
+            # Store participating teams
+            self.participating_teams = selected_teams
+            
+            # Close dialog
+            selection_dialog.destroy()
+            
+            # Start game with selected teams
+            self.start_game_with_teams(selected_teams)
+        
+        tk.Button(btn_frame, text="▶️ Start Match", command=start_selected_game,
+                 font=('Arial', 12, 'bold'), bg='#4CAF50', fg='white',
+                 width=15, height=2).pack(side=tk.LEFT, padx=5)
+        
+        tk.Button(btn_frame, text="✗ Cancel", command=selection_dialog.destroy,
+                 font=('Arial', 12, 'bold'), bg='#f44336', fg='white',
+                 width=12, height=2).pack(side=tk.LEFT, padx=5)
+    
+    def start_game_with_teams(self, selected_team_ids):
+        """Start the game with specific teams"""
         # Check if teams are ready (optional)
-        ready_teams = sum(1 for t in self.teams.values() if t['ready'])
-        if ready_teams < len(self.teams):
+        ready_teams = sum(1 for tid in selected_team_ids if self.teams[tid]['ready'])
+        if ready_teams < len(selected_team_ids):
             result = messagebox.askyesno("Not All Ready",
-                                        f"Only {ready_teams}/{len(self.teams)} teams are ready. Start anyway?")
+                                        f"Only {ready_teams}/{len(selected_team_ids)} selected teams are ready. Start anyway?")
             if not result:
                 return
         
@@ -406,39 +936,52 @@ class GameViewer:
         self.game_active = True
         self.game_start_time = time.time()
         self.game_time_remaining = self.config['game_duration']
+        self.game_ended_time = 0  # Reset game ended time
         
-        # Reset scores
-        for team in self.teams.values():
-            team['points'] = 0
-            team['kills'] = 0
-            team['deaths'] = 0
+        # Clear disabled robots
+        self.disabled_robots.clear()
+        
+        # Reset scores ONLY for participating teams
+        for team_id in selected_team_ids:
+            self.teams[team_id]['points'] = 0
+            self.teams[team_id]['kills'] = 0
+            self.teams[team_id]['deaths'] = 0
         
         # Clear hit log
         self.hit_log = []
         self.hit_log_text.delete(1.0, tk.END)
         
-        # Send game start message WITH DURATION
+        # Send game start message WITH DURATION to participating teams only
         message = {
             'type': 'GAME_START',
             'duration': self.config['game_duration']
         }
-        self.broadcast_message(message)
+        for team_id in selected_team_ids:
+            self.send_to_team(team_id, message)
         
         # Update UI
-        self.game_status_label.config(text="Status: GAME ACTIVE", fg='lime')
+        team_names = ", ".join([self.teams[tid]['team_name'] for tid in selected_team_ids])
+        self.game_status_label.config(text=f"Status: GAME ACTIVE\n({len(selected_team_ids)} teams)", fg='lime')
         self.start_game_btn.config(state=tk.DISABLED)
         self.end_game_btn.config(state=tk.NORMAL)
         self.ready_check_btn.config(state=tk.DISABLED)
         
-        print(f"[GV] Game started! Duration: {self.config['game_duration']}s")
+        print(f"[GV] Game started with teams: {selected_team_ids}")
+        print(f"[GV] Duration: {self.config['game_duration']}s")
+        print(f"[GV] Match name: {self.current_match_name}")
     
     def end_game(self):
-        """End the game"""
+        """End the game and save results"""
         self.game_active = False
+        self.game_ended_time = time.time()  # Track when game ended for referee grace period
         
-        # Send game end message
+        # Send game end message to participating teams
         message = {'type': 'GAME_END'}
-        self.broadcast_message(message)
+        if hasattr(self, 'participating_teams'):
+            for team_id in self.participating_teams:
+                self.send_to_team(team_id, message)
+        else:
+            self.broadcast_message(message)
         
         # Update UI
         self.game_status_label.config(text="Status: Game Ended", fg='yellow')
@@ -446,29 +989,171 @@ class GameViewer:
         self.end_game_btn.config(state=tk.DISABLED)
         self.ready_check_btn.config(state=tk.NORMAL)
         
+        # Save results to file
+        self.save_match_results()
+        
         # Show final results
         self.show_final_results()
         
         print("[GV] Game ended!")
     
+    def save_match_results(self):
+        """Save match results to a text file"""
+        if not hasattr(self, 'current_match_name'):
+            self.current_match_name = f"match_{datetime.now().strftime('%Y%m%d_%H%M%S')}"
+        
+        if not hasattr(self, 'participating_teams'):
+            self.participating_teams = list(self.teams.keys())
+        
+        # Ask for custom filename
+        filename_dialog = tk.Toplevel(self.root)
+        filename_dialog.title("💾 Save Match Results")
+        filename_dialog.geometry("500x200")
+        filename_dialog.configure(bg='#2a2a2a')
+        filename_dialog.transient(self.root)
+        filename_dialog.grab_set()
+        
+        tk.Label(filename_dialog, text="Save Match Results",
+                font=('Arial', 16, 'bold'), bg='#2a2a2a', fg='#00ff00').pack(pady=15)
+        
+        tk.Label(filename_dialog, text="Enter filename for results:",
+                font=('Arial', 11), bg='#2a2a2a', fg='white').pack(pady=5)
+        
+        name_frame = tk.Frame(filename_dialog, bg='#2a2a2a')
+        name_frame.pack(pady=10)
+        
+        filename_var = tk.StringVar(value=self.current_match_name)
+        filename_entry = tk.Entry(name_frame, textvariable=filename_var,
+                                  font=('Arial', 12), width=35,
+                                  bg='#3a3a3a', fg='white', insertbackground='white')
+        filename_entry.pack(side=tk.LEFT, padx=5)
+        
+        tk.Label(name_frame, text=".txt",
+                font=('Arial', 12), bg='#2a2a2a', fg='white').pack(side=tk.LEFT)
+        
+        def save_file():
+            filename = filename_var.get().strip()
+            if not filename:
+                messagebox.showwarning("No Filename", "Please enter a filename!")
+                return
+            
+            if not filename.endswith('.txt'):
+                filename += '.txt'
+            
+            try:
+                # Sort participating teams by points
+                sorted_teams = sorted(
+                    [(tid, self.teams[tid]) for tid in self.participating_teams],
+                    key=lambda x: x[1]['points'],
+                    reverse=True
+                )
+                
+                # Create results content
+                content = "=" * 60 + "\n"
+                content += "🏆 LASER TAG MATCH RESULTS\n"
+                content += "=" * 60 + "\n\n"
+                content += f"Match Name: {self.current_match_name}\n"
+                content += f"Date/Time: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n"
+                content += f"Duration: {self.config['game_duration']} seconds\n"
+                content += f"Participating Teams: {len(self.participating_teams)}\n"
+                content += "\n" + "=" * 60 + "\n"
+                content += "FINAL STANDINGS\n"
+                content += "=" * 60 + "\n\n"
+                
+                for rank, (team_id, team) in enumerate(sorted_teams, 1):
+                    kd_ratio = team['kills'] / team['deaths'] if team['deaths'] > 0 else team['kills']
+                    content += f"Rank {rank}: Team {team_id} - {team['team_name']}\n"
+                    content += f"  Robot: {team['robot_name']}\n"
+                    content += f"  Points: {team['points']}\n"
+                    content += f"  Kills: {team['kills']}\n"
+                    content += f"  Deaths: {team['deaths']}\n"
+                    content += f"  K/D Ratio: {kd_ratio:.2f}\n"
+                    content += "\n"
+                
+                content += "=" * 60 + "\n"
+                content += "MATCH STATISTICS\n"
+                content += "=" * 60 + "\n\n"
+                
+                total_points = sum(team['points'] for _, team in sorted_teams)
+                total_kills = sum(team['kills'] for _, team in sorted_teams)
+                
+                content += f"Total Points Scored: {total_points}\n"
+                content += f"Total Eliminations: {total_kills}\n"
+                content += f"Total Hit Events: {len(self.hit_log)}\n"
+                
+                if sorted_teams:
+                    winner = sorted_teams[0]
+                    content += f"\n🏆 WINNER: Team {winner[0]} - {winner[1]['team_name']} with {winner[1]['points']} points!\n"
+                
+                content += "\n" + "=" * 60 + "\n"
+                content += "HIT LOG\n"
+                content += "=" * 60 + "\n\n"
+                
+                for hit in self.hit_log:
+                    attacker_id = hit.get('attacking_team')
+                    defender_id = hit.get('defending_team')
+                    if attacker_id in self.teams and defender_id in self.teams:
+                        timestamp = hit.get('timestamp', 'N/A')
+                        content += f"[{timestamp}] Team {attacker_id} ({self.teams[attacker_id]['team_name']}) → "
+                        content += f"Team {defender_id} ({self.teams[defender_id]['team_name']})\n"
+                
+                content += "\n" + "=" * 60 + "\n"
+                content += "END OF REPORT\n"
+                content += "=" * 60 + "\n"
+                
+                # Write to file
+                with open(filename, 'w') as f:
+                    f.write(content)
+                
+                messagebox.showinfo("Success", f"Match results saved to:\n{filename}")
+                filename_dialog.destroy()
+                
+            except Exception as e:
+                messagebox.showerror("Error", f"Failed to save results:\n{e}")
+        
+        btn_frame = tk.Frame(filename_dialog, bg='#2a2a2a')
+        btn_frame.pack(pady=15)
+        
+        tk.Button(btn_frame, text="💾 Save", command=save_file,
+                 font=('Arial', 11, 'bold'), bg='#4CAF50', fg='white',
+                 width=12, height=2).pack(side=tk.LEFT, padx=5)
+        
+        tk.Button(btn_frame, text="Skip", command=filename_dialog.destroy,
+                 font=('Arial', 11, 'bold'), bg='#607D8B', fg='white',
+                 width=12, height=2).pack(side=tk.LEFT, padx=5)
+    
     def show_final_results(self):
         """Show final results dialog"""
         results_window = tk.Toplevel(self.root)
         results_window.title("🏆 Final Results")
-        results_window.geometry("500x400")
+        results_window.geometry("600x500")
         results_window.configure(bg='#2d2d2d')
         
         tk.Label(results_window, text="🏆 FINAL RESULTS 🏆",
                 font=('Arial', 18, 'bold'), bg='#2d2d2d', fg='gold').pack(pady=20)
         
-        # Sort teams by points
-        sorted_teams = sorted(self.teams.values(), key=lambda t: t['points'], reverse=True)
+        # Show match name
+        if hasattr(self, 'current_match_name'):
+            tk.Label(results_window, text=f"Match: {self.current_match_name}",
+                    font=('Arial', 12), bg='#2d2d2d', fg='cyan').pack(pady=5)
+        
+        # Sort participating teams by points
+        if hasattr(self, 'participating_teams'):
+            sorted_teams = sorted(
+                [self.teams[tid] for tid in self.participating_teams if tid in self.teams],
+                key=lambda t: t['points'],
+                reverse=True
+            )
+            tk.Label(results_window, text=f"Participating Teams: {len(sorted_teams)}",
+                    font=('Arial', 11), bg='#2d2d2d', fg='white').pack(pady=2)
+        else:
+            sorted_teams = sorted(self.teams.values(), key=lambda t: t['points'], reverse=True)
         
         results_text = scrolledtext.ScrolledText(results_window,
                                                 font=('Courier', 11),
                                                 bg='#1a1a1a', fg='white',
                                                 height=15)
-        results_text.pack(fill=tk.BOTH, expand=True, padx=20, pady=(0, 20))
+        results_text.pack(fill=tk.BOTH, expand=True, padx=20, pady=(10, 20))
         
         for rank, team in enumerate(sorted_teams, 1):
             kd_ratio = team['kills'] / team['deaths'] if team['deaths'] > 0 else team['kills']
@@ -941,29 +1626,81 @@ class GameViewer:
                     try:
                         frame = video_frames[team_id]
                         
-                        # Resize frame to fit display
-                        height, width = frame.shape[:2]
-                        display_width = 640
-                        display_height = int(display_width * height / width)
+                        # Resize frame to fit display - use label size for equal spacing
+                        label_width = video_labels[team_id].winfo_width()
+                        label_height = video_labels[team_id].winfo_height()
                         
-                        # Limit height
-                        if display_height > 400:
-                            display_height = 400
-                            display_width = int(display_height * width / height)
+                        # Use actual label dimensions (equal quadrants)
+                        if label_width > 10 and label_height > 10:  # Valid dimensions
+                            display_width = label_width - 10
+                            display_height = label_height - 10
+                        else:
+                            # Fallback for initial sizing
+                            display_width = 680
+                            display_height = 420
                         
                         # Resize using PIL
                         img = Image.fromarray(frame)
                         img = img.resize((display_width, display_height), Image.Resampling.LANCZOS)
                         
-                        # Add timestamp
+                        # Add overlays
                         from PIL import ImageDraw, ImageFont
                         draw = ImageDraw.Draw(img)
+                        
+                        # Add timestamp
                         timestamp = datetime.now().strftime("%H:%M:%S")
                         try:
-                            font = ImageFont.truetype("/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf", 16)
+                            font_small = ImageFont.truetype("/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf", 16)
+                            font_large = ImageFont.truetype("/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf", 48)
                         except:
-                            font = ImageFont.load_default()
-                        draw.text((10, 10), timestamp, fill=(0, 255, 0), font=font)
+                            font_small = ImageFont.load_default()
+                            font_large = ImageFont.load_default()
+                        
+                        draw.text((10, 10), timestamp, fill=(0, 255, 0), font=font_small)
+                        
+                        # Check if robot is disabled
+                        if team_id in self.disabled_robots:
+                            disable_until = self.disabled_robots[team_id]
+                            if current_time < disable_until:
+                                # Robot is still disabled - show red overlay
+                                time_left = int(disable_until - current_time) + 1
+                                
+                                # Semi-transparent red overlay
+                                from PIL import Image as PILImage
+                                overlay = PILImage.new('RGBA', img.size, (255, 0, 0, 100))
+                                img = img.convert('RGBA')
+                                img = PILImage.alpha_composite(img, overlay)
+                                img = img.convert('RGB')
+                                draw = ImageDraw.Draw(img)
+                                
+                                # Large DISABLED text
+                                text = "🚫 DISABLED"
+                                text_bbox = draw.textbbox((0, 0), text, font=font_large)
+                                text_width = text_bbox[2] - text_bbox[0]
+                                text_height = text_bbox[3] - text_bbox[1]
+                                x = (display_width - text_width) // 2
+                                y = (display_height - text_height) // 2 - 30
+                                
+                                # Black shadow for text
+                                draw.text((x+2, y+2), text, fill=(0, 0, 0), font=font_large)
+                                draw.text((x, y), text, fill=(255, 0, 0), font=font_large)
+                                
+                                # Time remaining
+                                time_text = f"{time_left}s"
+                                time_bbox = draw.textbbox((0, 0), time_text, font=font_large)
+                                time_width = time_bbox[2] - time_bbox[0]
+                                time_x = (display_width - time_width) // 2
+                                time_y = y + text_height + 10
+                                draw.text((time_x+2, time_y+2), time_text, fill=(0, 0, 0), font=font_large)
+                                draw.text((time_x, time_y), time_text, fill=(255, 255, 0), font=font_large)
+                                
+                                status_labels[team_id].config(text=f"🔴 DISABLED ({time_left}s)", fg='red')
+                            else:
+                                # Disabled period expired - remove from dict
+                                del self.disabled_robots[team_id]
+                                status_labels[team_id].config(text="🟢 Live", fg='lime')
+                        else:
+                            status_labels[team_id].config(text="🟢 Live", fg='lime')
                         
                         # Convert to PhotoImage
                         photo = ImageTk.PhotoImage(image=img)
@@ -971,8 +1708,6 @@ class GameViewer:
                         # Update label
                         video_labels[team_id].config(image=photo, text="")
                         video_labels[team_id].image = photo  # Keep reference
-                        
-                        status_labels[team_id].config(text="🟢 Live", fg='lime')
                     except Exception as e:
                         print(f"[Camera] Display error for team {team_id}: {e}")
                         status_labels[team_id].config(text="⚠️ Display Error", fg='orange')
