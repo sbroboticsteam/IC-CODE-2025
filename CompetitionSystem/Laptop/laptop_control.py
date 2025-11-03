@@ -188,15 +188,24 @@ class KeyboardController:
         if controls.get('boost', 'shift_l') in self.keys_pressed:
             self.boost = True
         
-        # Calculate movement
+        # Calculate movement - MECANUM DRIVE
+        # W/S = Forward/Backward (vy)
+        # A/D = Strafe Left/Right (vx)
+        # Arrow Left/Right = Rotate (vr)
         if controls.get('forward', 'w') in self.keys_pressed:
-            self.vy += 1.0
+            self.vy += 1.0  # Forward
         if controls.get('backward', 's') in self.keys_pressed:
-            self.vy -= 1.0
+            self.vy -= 1.0  # Backward
         if controls.get('left', 'a') in self.keys_pressed:
-            self.vx -= 1.0
+            self.vx -= 1.0  # Strafe left
         if controls.get('right', 'd') in self.keys_pressed:
-            self.vx += 1.0
+            self.vx += 1.0  # Strafe right
+        
+        # Rotation with arrow keys
+        if 'left' in self.keys_pressed:  # Arrow left
+            self.vr -= 1.0  # Rotate counter-clockwise
+        if 'right' in self.keys_pressed:  # Arrow right
+            self.vr += 1.0  # Rotate clockwise
         
         # Apply speed multiplier
         speed = self.config.get('controls', 'boost_speed') if self.boost else self.config.get('controls', 'base_speed')
@@ -443,9 +452,10 @@ class RobotControlGUI:
         frame.pack(fill='x', pady=5)
         
         controls_text = """
-MOVEMENT:
-  W - Forward    S - Backward
-  A - Left       D - Right
+MECANUM DRIVE:
+  W - Forward       S - Backward
+  A - Strafe Left   D - Strafe Right
+  ← - Rotate Left   → - Rotate Right
   Shift - Boost
 
 COMBAT:

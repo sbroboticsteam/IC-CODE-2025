@@ -83,15 +83,17 @@ class MotorController:
     def drive_mecanum(self, vx: float, vy: float, omega: float, max_speed: float = 1.0):
         """
         Drive mecanum wheels
-        vx: forward/backward (-1 to 1)
-        vy: strafe left/right (-1 to 1)
-        omega: rotation (-1 to 1)
+        vx: strafe left/right (-1 to 1, negative = left, positive = right)
+        vy: forward/backward (-1 to 1, negative = backward, positive = forward)
+        omega: rotation (-1 to 1, negative = CCW, positive = CW)
         max_speed: speed multiplier (0 to 1)
         """
-        # Calculate wheel speeds
+        # Calculate wheel speeds for mecanum drive
+        # FL and RR spin together for forward/backward and strafe
+        # FR and RL spin together for forward/backward and strafe (opposite)
         fl = vy + vx + omega   # Front Left
-        fr = -vy + vx - omega  # Front Right
-        rl = -vy + vx + omega  # Rear Left
+        fr = vy - vx - omega   # Front Right
+        rl = vy - vx + omega   # Rear Left
         rr = vy + vx - omega   # Rear Right
         
         # Normalize to [-1, 1]
