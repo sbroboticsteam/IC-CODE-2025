@@ -774,7 +774,7 @@ class GameViewer:
             print(f"[GV] Failed to send to team {team_id}: {e}")
     
     def send_points_update(self, team_id: int):
-        """Send points update to a team"""
+        """Send points update to a team's laptop"""
         if team_id not in self.teams:
             return
         
@@ -786,10 +786,8 @@ class GameViewer:
             'deaths': team['deaths']
         }
         
-        try:
-            self.sock.sendto(json.dumps(message).encode('utf-8'), team['addr'])
-        except Exception as e:
-            print(f"[GV] Failed to send points update: {e}")
+        # Send to laptop using send_to_team
+        self.send_to_team(team_id, message)
     
     def send_ready_check(self):
         """Send ready check to all teams"""

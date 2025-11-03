@@ -756,7 +756,12 @@ GPIO:
             self.points = final_points
             
         elif msg_type == 'POINTS_UPDATE':
+            # Update points, kills, and deaths from GV
             self.points = message.get('points', self.points)
+            # Update hits_taken (deaths) if provided
+            if 'deaths' in message:
+                self.hits_taken = message['deaths']
+            print(f"[GV] Points updated: {self.points} (Deaths: {self.hits_taken})")
             
         elif msg_type == 'HIT_NOTIFICATION':
             self.hits_taken += 1
