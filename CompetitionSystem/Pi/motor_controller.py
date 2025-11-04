@@ -80,40 +80,65 @@ class MotorController:
             duty = percent * 255 // 100
             self.pi.set_PWM_dutycycle(pins['EN'], duty)
     
-    def drive_mecanum(self, vx: float, vy: float, omega: float, max_speed: float = 1.0):
+    def drive_mecanum( self,
+    vx: float,           # strafe: left(-) / right(+)
+    vy: float,           # forward(+)/ backward(-)
+    omega: float,        # rotation: CCW(-) / CW(+)
+    max_speed: float=1.0,
+    wheelbase: float=1.0,   # front-back distance (m, arbitrary scale)
+    track: float=1.0,       # left-right distance (m, arbitrary scale)
+    field_centric: bool=False,
+    yaw_rad: float=0.0,     # robot yaw for field-centric
+    invert=(False, False, False, False) # (FL, FR, RL, RR) motor invert flags
+    ):
         """
-        Drive mecanum wheels
-        vx: strafe left/right (-1 to 1, negative = left, positive = right)
-        vy: forward/backward (-1 to 1, negative = backward, positive = forward)
-        omega: rotation (-1 to 1, negative = CCW, positive = CW)
-        max_speed: speed multiplier (0 to 1)
+        Proper mecanum inverse kinematics.
+        Conventions (matches your docstring):
+        vx: +right, vy: +forward, omega: +CW (note: CW positive)
         """
-        # Calculate wheel speeds for mecanum drive
-        # FL and RR spin together for forward/backward and strafe
-        # FR and RL spin together for forward/backward and strafe (opposite)
-        fl = vy + vx + omega   # Front Left
-        fr = vy - vx - omega   # Front Right
-        rl = vy - vx + omega   # Rear Left
-        rr = vy + vx - omega   # Rear Right
-        
-        # Normalize to [-1, 1]
-        max_magnitude = max(1.0, abs(fl), abs(fr), abs(rl), abs(rr))
-        fl /= max_magnitude
-        fr /= max_magnitude
-        rl /= max_magnitude
-        rr /= max_magnitude
-        
-        # Apply speed multiplier
-        fl *= max_speed
+
+        # Optional: rotate command from field frame into robot frame
+        if field_centric:
+            import math
+            cy, sy = math.cos(yaw_rad), math.sin(yaw_rad)
+            # field -> robot (x right, y forward)
+            vx, vy =  cy*vx + sy*vy, -sy*vx + cy*vy
+
+        # Geometry term (half perimeter from center to wheel contact)
+        k = 0.5*(wheelbase + track)
+
+        # Wheel speeds (unnormalized)
+        fl =  vy + vx + omega * k   # Front-Left
+        fr =  vy - vx - omega * k   # Front-Right
+        rl =  vy - vx + omega * k   # Rear-Left
+        rr =  vy + vx - omega * k   # Rear-Right
+
+        # Normalize to keep |speed| <= 1
+        max_mag = max(1.0, abs(fl), abs(fr), abs(rl), abs(rr))
+        fl, fr, rl, rr = fl/max_mag, fr/max_mag, rl/max_mag, rr/max_mag
+
+        # Scale by requested speed (0..1)
+        fl *= -max_speed
         fr *= max_speed
-        rl *= max_speed
+        rl *= -max_speed
         rr *= max_speed
-        
-        # Apply to motors
+
+        # Per-wheel inversion for wiring differences
+        if invert[0]: fl = -fl
+        if invert[1]: fr = -fr
+        if invert[2]: rl = -rl
+        if invert[3]: rr = -rr
+
+        # Optional tiny deadband to kill motor buzz
+        def deadband(x, eps=0.02): return 0.0 if abs(x) < eps else x
+        fl, fr, rl, rr = map(deadband, (fl, fr, rl, rr))
+
+        # Apply to motors (A=FL, B=FR, C=RL, D=RR per your mapping)
         self.apply_motor('A', fl)
         self.apply_motor('B', fr)
         self.apply_motor('C', rl)
         self.apply_motor('D', rr)
+
     
     def stop_all(self):
         """Stop all motors immediately"""
