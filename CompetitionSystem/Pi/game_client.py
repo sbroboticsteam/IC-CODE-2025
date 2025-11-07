@@ -47,6 +47,10 @@ class GameClient:
         self.running = False
         self.listen_thread: Optional[threading.Thread] = None
         self.heartbeat_thread: Optional[threading.Thread] = None
+        self.registration_thread: Optional[threading.Thread] = None
+        
+        # Connection tracking
+        self.last_gv_contact = 0  # Track last contact with GV
     
     def start(self):
         """Start game client"""
@@ -71,6 +75,10 @@ class GameClient:
         self.heartbeat_thread = threading.Thread(target=self._heartbeat_loop, daemon=True)
         self.heartbeat_thread.start()
         
+        # Start periodic registration thread
+        self.registration_thread = threading.Thread(target=self._registration_loop, daemon=True)
+        self.registration_thread.start()
+        
         # Send initial registration
         self.send_registration()
         
@@ -84,10 +92,32 @@ class GameClient:
             "team_id": self.team_id,
             "team_name": self.team_name,
             "robot_name": self.robot_name,
+            "listen_port": self.listen_port,
             "timestamp": time.time()
         }
         self._send_to_gv(message)
         print(f"[GameClient] Sent registration")
+    
+    def _registration_loop(self):
+        """Periodic registration loop"""
+        while self.running:
+            try:
+                # Re-register every 30 seconds
+                time.sleep(30.0)
+                
+                if self.running:  # Check again after sleep
+                    self.send_registration()
+                    
+                    # Also check if we've lost contact with GV
+                    current_time = time.time()
+                    if self.last_gv_contact > 0 and (current_time - self.last_gv_contact) > 10.0:
+                        print("[GameClient] ⚠️ Lost contact with Game Viewer - re-registering")
+                        self.send_registration()
+                        
+            except Exception as e:
+                if self.running:
+                    print(f"[GameClient] Registration loop error: {e}")
+                time.sleep(30.0)
     
     def send_ready(self, ready: bool = True):
         """Send ready status"""
@@ -152,7 +182,31 @@ class GameClient:
         """Handle incoming message from Game Viewer"""
         msg_type = message.get('type')
         
-        if msg_type == 'READY_CHECK':
+        # Update last contact time for any message from GV
+        self.last_gv_contact = time.time()
+        
+        if msg_type == 'DISCOVERY':
+            # Game Viewer is looking for robots - respond with registration
+            print("[GameClient] 📡 Discovery received - sending registration")
+            response = {
+                "type": "DISCOVERY_RESPONSE",
+                "team_id": self.team_id,
+                "team_name": self.team_name,
+                "robot_name": self.robot_name,
+                "listen_port": self.listen_port,
+                "timestamp": time.time()
+            }
+            self._send_to_gv(response)
+        
+        elif msg_type == 'HEARTBEAT':
+            # GV heartbeat - respond to keep connection alive
+            self.last_gv_contact = time.time()
+        
+        elif msg_type == 'REGISTER_ACK':
+            print("[GameClient] ✅ Registration acknowledged")
+            self.connected = True
+        
+        elif msg_type == 'READY_CHECK':
             print("[GameClient] 📢 Ready check received")
             if self.on_ready_check:
                 self.on_ready_check()
@@ -217,6 +271,8 @@ class GameClient:
             self.listen_thread.join(timeout=1)
         if self.heartbeat_thread:
             self.heartbeat_thread.join(timeout=1)
+        if self.registration_thread:
+            self.registration_thread.join(timeout=1)
     
     def cleanup(self):
         """Clean up resources"""

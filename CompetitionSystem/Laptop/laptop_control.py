@@ -300,6 +300,9 @@ class RobotControlGUI:
         self.hits_taken = 0
         self.shots_fired = 0
         
+        # Connection tracking
+        self.last_gv_contact = 0
+        
         # Video stream
         self.video_process: Optional[subprocess.Popen] = None
         
@@ -572,6 +575,32 @@ GPIO:
         # Also start robot status listener
         self.robot_listener_thread = threading.Thread(target=self.robot_listener_loop, daemon=True)
         self.robot_listener_thread.start()
+        
+        # Start periodic registration thread
+        self.gv_registration_thread = threading.Thread(target=self.gv_registration_loop, daemon=True)
+        self.gv_registration_thread.start()
+    
+    def gv_registration_loop(self):
+        """Periodic registration with Game Viewer"""
+        while self.running:
+            try:
+                # Re-register every 30 seconds
+                time.sleep(30.0)
+                
+                if self.running:  # Check again after sleep
+                    local_port = self.config.get('laptop_listen_port') or 6100
+                    self.register_with_gv(local_port)
+                    
+                    # Also check if we've lost contact with GV
+                    current_time = time.time()
+                    if self.last_gv_contact > 0 and (current_time - self.last_gv_contact) > 10.0:
+                        print("[GV] ⚠️ Lost contact with Game Viewer - re-registering")
+                        self.register_with_gv(local_port)
+                        
+            except Exception as e:
+                if self.running:
+                    print(f"[GV] Registration loop error: {e}")
+                time.sleep(30.0)
     
     def robot_listener_loop(self):
         """Listen for status responses from robot"""
@@ -719,7 +748,9 @@ GPIO:
             print(f"[GV] Failed to bind listener: {e}")
             return
         
-        last_gv_message_time = time.time()  # Start with current time, not 0
+        # Start with current time to avoid immediate timeout
+        self.last_gv_contact = time.time()
+        last_gv_message_time = time.time()
         
         while self.running:
             try:
@@ -772,8 +803,16 @@ GPIO:
         """Handle message from Game Viewer"""
         msg_type = message.get('type')
         
-        if msg_type == 'HEARTBEAT':
-            # GV keepalive - do nothing, just updating last_gv_message_time is enough
+        # Update last contact time for any message from GV
+        self.last_gv_contact = time.time()
+        
+        if msg_type == 'DISCOVERY':
+            # Game Viewer is looking for laptops - respond with registration
+            print("[GV] 📡 Discovery received - sending registration")
+            self.register_with_gv(self.config.get('laptop_listen_port') or 6100)
+        
+        elif msg_type == 'HEARTBEAT':
+            # GV keepalive - do nothing, just updating last_gv_contact time is enough
             pass
         
         elif msg_type == 'REGISTER_ACK':
@@ -1001,6 +1040,8 @@ GPIO:
             self.control_thread.join(timeout=1)
         if self.gv_listener_thread:
             self.gv_listener_thread.join(timeout=1)
+        if hasattr(self, 'gv_registration_thread') and self.gv_registration_thread:
+            self.gv_registration_thread.join(timeout=1)
         
         self.root.destroy()
     

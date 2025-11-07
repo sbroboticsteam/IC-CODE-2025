@@ -58,6 +58,7 @@ class GameViewer:
         # Network
         self.sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
         self.sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+        self.sock.setsockopt(socket.SOL_SOCKET, socket.SO_BROADCAST, 1)  # Enable broadcasting
         self.sock.settimeout(0.1)
         
         # Bind to port
@@ -82,6 +83,12 @@ class GameViewer:
         
         # Start heartbeat sender
         self.start_heartbeat_thread()
+        
+        # Start discovery broadcaster
+        self.start_discovery_thread()
+        
+        # Send immediate discovery broadcast to find existing robots
+        self.root.after(1000, self.send_immediate_discovery)  # Wait 1 second for startup
         
         # Start referee web server
         self.start_referee_server()
@@ -243,6 +250,102 @@ class GameViewer:
         thread = threading.Thread(target=self.network_loop, daemon=True)
         thread.start()
         print("[GV] Network thread started")
+    
+    def start_discovery_thread(self):
+        """Start discovery broadcaster thread"""
+        thread = threading.Thread(target=self.discovery_loop, daemon=True)
+        thread.start()
+        print("[GV] Discovery thread started")
+    
+    def discovery_loop(self):
+        """Send periodic discovery broadcasts to find existing robots"""
+        while self.running:
+            try:
+                # Broadcast discovery message to common subnet
+                discovery_message = {
+                    'type': 'DISCOVERY',
+                    'gv_ip': self.config['gv_ip'],
+                    'gv_port': self.config['gv_port'],
+                    'timestamp': time.time()
+                }
+                
+                # Send to broadcast address and common robot IPs
+                broadcast_addresses = [
+                    ('255.255.255.255', 6100),  # Subnet broadcast
+                    ('192.168.50.255', 6100),   # Common robot subnet
+                ]
+                
+                # Also try specific robot IPs if we know any teams
+                for team_id in range(1, 9):  # Try team IDs 1-8
+                    robot_ip = f"192.168.50.{140 + team_id}"  # Common robot IP pattern
+                    laptop_ip = f"192.168.50.{60 + team_id}"   # Common laptop IP pattern
+                    
+                    broadcast_addresses.extend([
+                        (robot_ip, 6100),
+                        (laptop_ip, 6100),
+                        (robot_ip, 6000 + team_id),  # Dynamic ports
+                        (laptop_ip, 6000 + team_id)
+                    ])
+                
+                data = json.dumps(discovery_message).encode('utf-8')
+                
+                for addr in broadcast_addresses:
+                    try:
+                        self.sock.sendto(data, addr)
+                    except Exception:
+                        # Ignore individual send failures
+                        pass
+                
+                print("[GV] Discovery broadcast sent")
+                
+                # Send discovery every 15 seconds (less frequent than heartbeat)
+                time.sleep(15.0)
+                
+            except Exception as e:
+                if self.running:
+                    print(f"[GV] Discovery error: {e}")
+                time.sleep(15.0)
+    
+    def send_immediate_discovery(self):
+        """Send immediate discovery broadcast on startup"""
+        try:
+            discovery_message = {
+                'type': 'DISCOVERY',
+                'gv_ip': self.config['gv_ip'],
+                'gv_port': self.config['gv_port'],
+                'timestamp': time.time()
+            }
+            
+            # Send to broadcast address and common robot IPs
+            broadcast_addresses = [
+                ('255.255.255.255', 6100),  # Subnet broadcast
+                ('192.168.50.255', 6100),   # Common robot subnet
+            ]
+            
+            # Try specific robot IPs
+            for team_id in range(1, 9):  # Try team IDs 1-8
+                robot_ip = f"192.168.50.{140 + team_id}"
+                laptop_ip = f"192.168.50.{60 + team_id}"
+                
+                broadcast_addresses.extend([
+                    (robot_ip, 6100),
+                    (laptop_ip, 6100),
+                    (robot_ip, 6000 + team_id),
+                    (laptop_ip, 6000 + team_id)
+                ])
+            
+            data = json.dumps(discovery_message).encode('utf-8')
+            
+            for addr in broadcast_addresses:
+                try:
+                    self.sock.sendto(data, addr)
+                except Exception:
+                    pass
+            
+            print("[GV] Immediate discovery broadcast sent - looking for existing robots")
+            
+        except Exception as e:
+            print(f"[GV] Immediate discovery error: {e}")
     
     def start_heartbeat_thread(self):
         """Start heartbeat sender thread"""
@@ -690,6 +793,13 @@ class GameViewer:
             # Update ready status
             if team_id in self.teams:
                 self.teams[team_id]['ready'] = message.get('ready', False)
+        
+        elif msg_type == 'DISCOVERY_RESPONSE':
+            # Robot responding to discovery broadcast
+            listen_port = message.get('listen_port')
+            self.register_team(team_id, message, addr, listen_port)
+            # Send acknowledgment back to laptop
+            self.send_to_team(team_id, {'type': 'REGISTER_ACK', 'status': 'connected'})
     
     def register_team(self, team_id: int, message: dict, addr: tuple, listen_port: int):
         """Register a new team"""
@@ -709,14 +819,14 @@ class GameViewer:
                 'last_heartbeat': time.time(),
                 'video_port': self.config['video_ports_start'] + team_id - 1
             }
-            print(f"[GV] Team registered: {self.teams[team_id]['team_name']} (ID: {team_id}) on port {listen_port}")
+            print(f"[GV] ✅ New team registered: {self.teams[team_id]['team_name']} (ID: {team_id}) on port {listen_port}")
         else:
             # Team already exists - update laptop connection info
             if listen_port is not None:
                 self.teams[team_id]['laptop_ip'] = addr[0]
                 self.teams[team_id]['listen_port'] = listen_port
                 self.teams[team_id]['last_heartbeat'] = time.time()
-                print(f"[GV] Laptop connected for team {team_id}: {addr[0]}:{listen_port}")
+                print(f"[GV] 🔄 Team {team_id} reconnected: {addr[0]}:{listen_port}")
     
     def process_hit(self, hit_data: dict):
         """Process a hit report"""
