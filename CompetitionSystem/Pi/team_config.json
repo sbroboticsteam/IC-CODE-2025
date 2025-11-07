@@ -11,7 +11,7 @@
     "_comment": "Video ports are auto-calculated: GV = 5000+team_id, Laptop = 5100+team_id",
     "laptop_ip": "192.168.50.142",
     "laptop_port": 4999,
-    "game_viewer_ip": "192.168.50.87",
+    "game_viewer_ip": "192.168.50.67",
     "game_viewer_control_port": 6000,
     "robot_listen_port": 5005
   },

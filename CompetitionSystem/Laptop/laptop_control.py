@@ -622,6 +622,15 @@ GPIO:
                     self.robot_connected = True
                     last_response_time = current_time
                 
+                # Handle different message types from Pi
+                msg_type = message.get('type', 'STATUS')
+                
+                if msg_type == 'TEAM_INFO':
+                    # Receive team info from Pi
+                    self.team_name = message.get('team_name', 'Unknown')
+                    self.robot_name = message.get('robot_name', 'Unknown')
+                    print(f"[Robot] Received team info: {self.team_name} / {self.robot_name}")
+                
                 # Debug: Print first response
                 if not hasattr(self, '_debug_robot_response'):
                     self._debug_robot_response = True
@@ -783,8 +792,8 @@ GPIO:
         message = {
             'type': 'REGISTER',
             'team_id': self.config.get('team_id'),
-            'team_name': self.config.get('team_name'),
-            'robot_name': self.config.get('robot_name'),
+            'team_name': self.team_name,  # Use team info from Pi
+            'robot_name': self.robot_name,  # Use team info from Pi
             'listen_port': listen_port
         }
         self.send_to_gv(message)

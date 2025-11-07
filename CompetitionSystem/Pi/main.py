@@ -206,10 +206,17 @@ class RobotSystem:
                 self._debug_first_msg = True
                 print(f"[System] ✅ First laptop message received from {addr}")
                 print(f"[System] Message type: {msg_type}, keys: {list(message.keys())}")
+                
+                # Send team info to laptop on first contact
+                self.send_team_info(addr)
             
             # Handle different message types
             if msg_type == 'HEARTBEAT':
                 self.last_cmd_time = time.time()
+                # Respond to heartbeat with team info periodically
+                if not hasattr(self, '_last_info_send') or time.time() - self._last_info_send > 5.0:
+                    self.send_team_info(addr)
+                    self._last_info_send = time.time()
                 return
             
             elif msg_type == 'CONTROL':
@@ -277,6 +284,20 @@ class RobotSystem:
                 import traceback
                 traceback.print_exc()
             pass
+    
+    def send_team_info(self, addr):
+        """Send team configuration info to laptop"""
+        try:
+            info = {
+                "type": "TEAM_INFO",
+                "team_id": self.config['team']['team_id'],
+                "team_name": self.config['team']['team_name'],
+                "robot_name": self.config['team']['robot_name']
+            }
+            self.laptop_sock.sendto(json.dumps(info).encode('utf-8'), addr)
+            print(f"[System] Sent team info to laptop: {info['team_name']}")
+        except Exception as e:
+            print(f"[System] Failed to send team info: {e}")
     
     async def control_loop(self):
         """Main control loop"""
