@@ -1,5 +1,5 @@
 {
-  "_comment": "Competition Robot Configuration - Fill in your team's GPIO pins and settings",
+  "_comment": "Competition Robot Configuration - Fill in your team's info and GPIO pins",
   
   "team": {
     "team_id": 1,
@@ -8,17 +8,16 @@
   },
   
   "network": {
+    "_comment": "Video ports are auto-calculated: GV = 5000+team_id, Laptop = 5100+team_id",
     "laptop_ip": "192.168.50.142",
     "laptop_port": 4999,
-    "laptop_video_port": 5100,
     "game_viewer_ip": "192.168.50.87",
-    "game_viewer_video_port": 5001,
     "game_viewer_control_port": 6000,
     "robot_listen_port": 5005
   },
   
   "motors": {
-    "_comment": "Motor pins in BCM mode - DO NOT CHANGE KEYS",
+    "_comment": "Motor pins in BCM mode - configure for your wiring",
     "A": {"EN": 18, "IN1": 4, "IN2": 17, "corner": "FL", "direction_offset": 1},
     "B": {"EN": 23, "IN1": 15, "IN2": 27, "corner": "FR", "direction_offset": 1},
     "C": {"EN": 8, "IN1": 16, "IN2": 7, "corner": "RL", "direction_offset": 1},
@@ -30,18 +29,9 @@
   },
   
   "ir_system": {
-    "_comment": "IR Transmitter and Receiver pins - DO NOT CHANGE PROTOCOL",
+    "_comment": "IR GPIO pins - protocol is fixed by competition rules",
     "transmitter_gpio": 20,
-    "receiver_gpios": [3, 25, 21],
-    "carrier_frequency": 38000,
-    "protocol": {
-      "bit_0_burst_us": 800,
-      "bit_1_burst_us": 1600,
-      "start_end_burst_us": 2400,
-      "tolerance_us": 200
-    },
-    "weapon_cooldown_ms": 2000,
-    "hit_disable_time_s": 10.0
+    "receiver_gpios": [3, 25, 21]
   },
   
   "servos": {

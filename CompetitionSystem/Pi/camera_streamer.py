@@ -20,10 +20,11 @@ class CameraStreamer:
         self.bitrate = self.camera_config.get('bitrate', 4000000)
         
         self.laptop_ip = self.network_config['laptop_ip']
-        self.laptop_port = self.network_config['laptop_video_port']
+        # Auto-calculate ports based on team_id
+        self.laptop_port = 5100 + self.team_id
         
         self.gv_ip = self.network_config['game_viewer_ip']
-        self.gv_port = self.network_config['game_viewer_video_port']
+        self.gv_port = 5000 + self.team_id
         
         self.process: Optional[subprocess.Popen] = None
         self.is_streaming = False

@@ -21,10 +21,7 @@ DEFAULT_CONFIG = {
     "robot_port": 5005,
     "gv_ip": "192.168.50.67",
     "gv_port": 6000,
-    "video_port": 5100,
     "team_id": 1,
-    "team_name": "Admin",
-    "robot_name": "Admin_Robot",
     "controls": {
         "base_speed": 0.6,
         "boost_speed": 1.0,
@@ -273,6 +270,10 @@ class RobotControlGUI:
         # Config
         self.config = Config()
         
+        # Team info (will be populated from GV registration)
+        self.team_name = "Unknown"
+        self.robot_name = "Unknown"
+        
         # Keyboard controller
         self.keyboard = KeyboardController(self.config)
         
@@ -428,13 +429,13 @@ class RobotControlGUI:
                              bg='#2a2a2a', fg='white', padx=10, pady=10)
         frame.pack(fill='x', pady=5)
         
-        self.team_name_label = tk.Label(frame, text=self.config.get('team_name'),
+        self.team_name_label = tk.Label(frame, text=self.team_name,
                                         font=('Arial', 14, 'bold'), bg='#2a2a2a', fg='#00ffff')
         self.team_name_label.pack()
         
-        robot_label = tk.Label(frame, text=f"Robot: {self.config.get('robot_name')}",
+        self.robot_label = tk.Label(frame, text=f"Robot: {self.robot_name}",
                               font=('Arial', 10), bg='#2a2a2a', fg='#aaaaaa')
-        robot_label.pack()
+        self.robot_label.pack()
         
         team_id_label = tk.Label(frame, text=f"Team ID: {self.config.get('team_id')}",
                                 font=('Arial', 10), bg='#2a2a2a', fg='#aaaaaa')
@@ -817,6 +818,13 @@ GPIO:
         
         elif msg_type == 'REGISTER_ACK':
             print("[GV] Registration acknowledged")
+            # Extract team info from registration acknowledgment
+            if 'team_name' in message:
+                self.team_name = message['team_name']
+                print(f"[GV] Team name: {self.team_name}")
+            if 'robot_name' in message:
+                self.robot_name = message['robot_name']
+                print(f"[GV] Robot name: {self.robot_name}")
         
         elif msg_type == 'READY_CHECK':
             print(f"[GV] Received ready check - Current status: {self.ready_status}")
@@ -906,7 +914,9 @@ GPIO:
             return
         
         try:
-            port = self.config.get('video_port')
+            # Calculate video port based on team_id (5100 + team_id)
+            team_id = self.config.get('team_id')
+            port = 5100 + team_id
             cmd = GST_RECEIVER_CMD_TEMPLATE.format(port=port)
             self.video_process = subprocess.Popen(cmd, shell=True)
             
@@ -935,6 +945,10 @@ GPIO:
         """Update GUI periodically"""
         if not self.running:
             return
+        
+        # Update team info labels
+        self.team_name_label.config(text=self.team_name)
+        self.robot_label.config(text=f"Robot: {self.robot_name}")
         
         # Update disabled state
         if self.is_disabled:
@@ -1081,9 +1095,10 @@ class SettingsDialog:
                                    bg='#2a2a2a', fg='white', font=('Arial', 11, 'bold'))
         team_frame.pack(fill='x', pady=5)
         
-        self.create_field(team_frame, "Team Name:", 'team_name')
-        self.create_field(team_frame, "Robot Name:", 'robot_name')
         self.create_field(team_frame, "Team ID:", 'team_id')
+        
+        tk.Label(team_frame, text="Note: Team/Robot names are set in Pi config and synced via GV",
+                bg='#2a2a2a', fg='#888888', font=('Arial', 8, 'italic')).pack(pady=5)
         
         # Network settings
         net_frame = tk.LabelFrame(main_frame, text="Network Settings",
@@ -1094,7 +1109,9 @@ class SettingsDialog:
         self.create_field(net_frame, "Robot Port:", 'robot_port')
         self.create_field(net_frame, "GV IP:", 'gv_ip')
         self.create_field(net_frame, "GV Port:", 'gv_port')
-        self.create_field(net_frame, "Video Port:", 'video_port')
+        
+        tk.Label(net_frame, text="Note: Video port is auto-calculated (5100 + Team ID)",
+                bg='#2a2a2a', fg='#888888', font=('Arial', 8, 'italic')).pack(pady=5)
         
         # Speed settings
         speed_frame = tk.LabelFrame(main_frame, text="Speed Settings",

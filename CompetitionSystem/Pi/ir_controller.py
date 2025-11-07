@@ -11,6 +11,15 @@ import socket
 from typing import Dict, List, Callable
 from datetime import datetime
 
+# IR Protocol Constants - DO NOT MODIFY
+IR_CARRIER_FREQ = 38000
+IR_BIT_0_BURST_US = 800
+IR_BIT_1_BURST_US = 1600
+IR_START_END_BURST_US = 2400
+IR_TOLERANCE_US = 200
+IR_WEAPON_COOLDOWN_MS = 2000
+IR_HIT_DISABLE_TIME_S = 10.0
+
 class IRController:
     def __init__(self, pi: pigpio.pi, config: Dict, team_id: int, gv_ip: str, gv_port: int):
         self.pi = pi
@@ -23,21 +32,20 @@ class IRController:
         self.tx_gpio = self.config['transmitter_gpio']
         self.rx_gpios = self.config['receiver_gpios']
         
-        # Protocol timing
-        self.carrier_freq = self.config['carrier_frequency']
+        # Protocol timing (hardcoded)
+        self.carrier_freq = IR_CARRIER_FREQ
         self.carrier_period_us = int(1_000_000 / self.carrier_freq)
         self.pulse_on_us = self.carrier_period_us // 2
         self.pulse_off_us = self.carrier_period_us - self.pulse_on_us
         
-        protocol = self.config['protocol']
-        self.bit_0_burst = protocol['bit_0_burst_us']
-        self.bit_1_burst = protocol['bit_1_burst_us']
-        self.start_end_burst = protocol['start_end_burst_us']
-        self.tolerance = protocol['tolerance_us']
+        self.bit_0_burst = IR_BIT_0_BURST_US
+        self.bit_1_burst = IR_BIT_1_BURST_US
+        self.start_end_burst = IR_START_END_BURST_US
+        self.tolerance = IR_TOLERANCE_US
         
-        # Weapon cooldown and hit timing
-        self.weapon_cooldown = self.config['weapon_cooldown_ms'] / 1000.0
-        self.hit_disable_time = self.config['hit_disable_time_s']
+        # Weapon cooldown and hit timing (hardcoded)
+        self.weapon_cooldown = IR_WEAPON_COOLDOWN_MS / 1000.0
+        self.hit_disable_time = IR_HIT_DISABLE_TIME_S
         self.last_fire_time = 0
         
         # Hit tracking

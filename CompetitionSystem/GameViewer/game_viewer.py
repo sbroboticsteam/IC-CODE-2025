@@ -776,8 +776,14 @@ class GameViewer:
             # Team registration
             listen_port = message.get('listen_port')
             self.register_team(team_id, message, addr, listen_port)
-            # Send acknowledgment back to laptop
-            self.send_to_team(team_id, {'type': 'REGISTER_ACK', 'status': 'connected'})
+            # Send acknowledgment back to laptop with team info
+            if team_id in self.teams:
+                self.send_to_team(team_id, {
+                    'type': 'REGISTER_ACK', 
+                    'status': 'connected',
+                    'team_name': self.teams[team_id].get('team_name', f'Team {team_id}'),
+                    'robot_name': self.teams[team_id].get('robot_name', f'Robot {team_id}')
+                })
         
         elif msg_type == 'HEARTBEAT':
             # Update team heartbeat
@@ -798,8 +804,14 @@ class GameViewer:
             # Robot responding to discovery broadcast
             listen_port = message.get('listen_port')
             self.register_team(team_id, message, addr, listen_port)
-            # Send acknowledgment back to laptop
-            self.send_to_team(team_id, {'type': 'REGISTER_ACK', 'status': 'connected'})
+            # Send acknowledgment back to laptop with team info
+            if team_id in self.teams:
+                self.send_to_team(team_id, {
+                    'type': 'REGISTER_ACK', 
+                    'status': 'connected',
+                    'team_name': self.teams[team_id].get('team_name', f'Team {team_id}'),
+                    'robot_name': self.teams[team_id].get('robot_name', f'Robot {team_id}')
+                })
     
     def register_team(self, team_id: int, message: dict, addr: tuple, listen_port: int):
         """Register a new team"""
