@@ -97,6 +97,21 @@
     }
   },
   
+  "ir_system": {
+    "_comment": "IR transmitter/receiver for laser tag combat",
+    "transmitter_gpio": 25,
+    "receiver_gpios": [20, 21],
+    "carrier_frequency": 38000,
+    "protocol": {
+      "bit_0_burst_us": 600,
+      "bit_1_burst_us": 1200,
+      "start_end_burst_us": 2400,
+      "tolerance_us": 200
+    },
+    "weapon_cooldown_ms": 100,
+    "hit_disable_time_s": 10
+  },
+  
   "camera": {
     "width": 1280,
     "height": 720,
