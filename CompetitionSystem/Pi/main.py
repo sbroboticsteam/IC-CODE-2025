@@ -294,20 +294,15 @@ class RobotSystem:
                         self.motor_controller.exit_standby()
                         self.in_standby = False
                 
-                # Send status back to laptop (include fire confirmation)
+                # Send comprehensive status back to laptop (SINGLE MESSAGE)
                 status = {
-                    'type': 'STATUS',
-                    'fire_success': fire_success  # Tell laptop if fire actually happened
-                }
-                self.laptop_sock.sendto(json.dumps(status).encode('utf-8'), addr)
-                response = {
                     "type": "STATUS",
+                    "fire_success": fire_success,  # Tell laptop if fire actually happened
                     "ir_status": self.ir_controller.get_status(),
                     "game_status": self.game_client.get_status(),
                     "camera_active": self.camera_streamer.is_alive()
                 }
-                
-                self.laptop_sock.sendto(json.dumps(response).encode('utf-8'), addr)
+                self.laptop_sock.sendto(json.dumps(status).encode('utf-8'), addr)
         
         except socket.timeout:
             # Normal - no data available

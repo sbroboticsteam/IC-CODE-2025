@@ -15,13 +15,10 @@ import tkinter as tk
 from tkinter import ttk, messagebox, simpledialog
 from typing import Optional, Dict
 
-# ============ CONFIG PATHS ============
-# Laptop now reads from Pi's team_config.json - single source of truth!
-PI_CONFIG_PATH = "../Pi/team_config.json"
-CONFIG_FILE = PI_CONFIG_PATH  # For backwards compatibility
+# ============ CONFIG ============
+# Laptop requests config from Pi at startup - Pi is the single source of truth!
 
-# Video port calculation: GV video port = 5000 + team_id
-# Default controls (only thing not in team_config.json)
+# Default controls (only laptop-specific setting)
 DEFAULT_CONTROLS = {
     "base_speed": 0.6,
     "boost_speed": 1.0,
@@ -43,6 +40,7 @@ DEFAULT_CONTROLS = {
 }
 
 SEND_HZ = 30
+CONFIG_REQUEST_TIMEOUT = 5.0  # Seconds to wait for Pi to send config
 
 GST_RECEIVER_CMD_TEMPLATE = (
     'gst-launch-1.0 -v udpsrc port={port} caps='
@@ -192,9 +190,9 @@ class KeyboardController:
         self.gpio_states = [False, False, False, False]
         self.lights_on = False
         
-        # Fire cooldown
+        # Fire cooldown (match Pi's 2s weapon cooldown)
         self.last_fire_time = 0
-        self.fire_cooldown = 0.5  # 500ms between shots
+        self.fire_cooldown = 2.0  # 2000ms to match Pi's IR weapon cooldown
         
     def on_key_press(self, event):
         """Handle key press"""
@@ -388,6 +386,81 @@ class RobotControlGUI:
         
         # Cleanup handler
         self.root.protocol("WM_DELETE_WINDOW", self.on_closing)
+    
+    def prompt_robot_ip(self):
+        """Prompt user for robot IP address"""
+        # Try to load last used IP
+        last_ip_file = "last_robot_ip.txt"
+        default_ip = "192.168.50.147"
+        
+        if os.path.exists(last_ip_file):
+            try:
+                with open(last_ip_file, 'r') as f:
+                    default_ip = f.read().strip()
+            except:
+                pass
+        
+        # Hide the main window while prompting
+        self.root.withdraw()
+        
+        robot_ip = simpledialog.askstring(
+            "Robot IP Address",
+            "Enter the robot's IP address:",
+            initialvalue=default_ip
+        )
+        
+        if not robot_ip:
+            print("[Config] No robot IP provided - exiting")
+            sys.exit(0)
+        
+        # Save for next time
+        try:
+            with open(last_ip_file, 'w') as f:
+                f.write(robot_ip)
+        except:
+            pass
+        
+        # Show main window again
+        self.root.deiconify()
+        
+        return robot_ip
+    
+    def request_pi_config(self):
+        """Request configuration from Pi and wait for response"""
+        print("[Config] Requesting configuration from Pi...")
+        
+        # Send config request
+        request = {
+            'type': 'CONFIG_REQUEST'
+        }
+        
+        try:
+            data = json.dumps(request).encode('utf-8')
+            robot_port = 5005  # Default robot listen port
+            self.robot_sock.sendto(data, (self.config.robot_ip, robot_port))
+            print(f"[Config] Sent config request to {self.config.robot_ip}:{robot_port}")
+        except Exception as e:
+            print(f"[Config] Failed to send request: {e}")
+            messagebox.showerror("Connection Error", 
+                f"Failed to contact robot at {self.config.robot_ip}\n{e}")
+            sys.exit(1)
+        
+        # Start listener thread to receive response
+        self.robot_listener_thread = threading.Thread(target=self.robot_listener_loop, daemon=True)
+        self.robot_listener_thread.start()
+        
+        # Wait for response (will be handled in robot_listener_loop)
+        start_time = time.time()
+        while not self.config.config_received:
+            time.sleep(0.1)
+            self.root.update()  # Keep GUI responsive
+            if time.time() - start_time > CONFIG_REQUEST_TIMEOUT:
+                messagebox.showerror("Configuration Error",
+                    f"No response from robot at {self.config.robot_ip}\n"
+                    "Make sure the robot is running and on the network.")
+                sys.exit(1)
+        
+        print("[Config] ✅ Configuration received successfully!")
     
     def setup_gui(self):
         """Create GUI"""
@@ -640,9 +713,8 @@ GPIO:
         self.control_thread = threading.Thread(target=self.control_loop, daemon=True)
         self.control_thread.start()
         
-        # Also start robot status listener
-        self.robot_listener_thread = threading.Thread(target=self.robot_listener_loop, daemon=True)
-        self.robot_listener_thread.start()
+        # Robot listener is already started in request_pi_config()
+        # Don't start it again here!
         
         # Start periodic registration thread
         self.gv_registration_thread = threading.Thread(target=self.gv_registration_loop, daemon=True)
@@ -685,6 +757,11 @@ GPIO:
                 
                 msg_type = message.get('type')
                 
+                # Update connection status for ANY message from robot
+                current_time = time.time()
+                self.robot_connected = True
+                last_response_time = current_time
+                
                 # Handle config response
                 if msg_type == 'CONFIG_RESPONSE':
                     config_data = message.get('config')
@@ -694,15 +771,11 @@ GPIO:
                 
                 # Handle STATUS response with fire confirmation
                 if msg_type == 'STATUS':
+                    # Only count shot if Pi confirms fire actually happened
                     if message.get('fire_success', False):
                         self.shots_fired += 1
+                        print(f"[Robot] 🔥 Shot fired! Total: {self.shots_fired}")
                     continue
-                
-                # Update connection status
-                current_time = time.time()
-                if current_time - last_response_time > 0.5:  # Only update every 500ms
-                    self.robot_connected = True
-                    last_response_time = current_time
                 
                 # Debug: Print first response
                 if not hasattr(self, '_debug_robot_response'):
@@ -712,6 +785,8 @@ GPIO:
             except socket.timeout:
                 # Check if connection timed out
                 if time.time() - last_response_time > 3.0:
+                    if self.robot_connected:  # Only print once
+                        print("[Robot] ⚠️ Connection timeout")
                     self.robot_connected = False
                 continue
             except Exception as e:
@@ -738,8 +813,8 @@ GPIO:
                         'vx': 0,
                         'vy': 0,
                         'vr': 0,
-                        'servo1': state['servo1'],  # Allow servo control when disabled
-                        'servo2': state['servo2'],
+                        'servo1_toggle': state['servo1_toggle'],  # Allow servo control when disabled
+                        'servo2_toggle': state['servo2_toggle'],
                         'gpio': [False, False, False, False],  # Turn off all GPIO
                         'lights': False  # Turn off lights
                     }
@@ -753,18 +828,18 @@ GPIO:
                         'vx': state['vx'],
                         'vy': state['vy'],
                         'vr': state['vr'],
-                        'servo1': state['servo1'],
-                        'servo2': state['servo2'],
+                        'servo1_toggle': state['servo1_toggle'],
+                        'servo2_toggle': state['servo2_toggle'],
                         'gpio': state['gpio'],
                         'lights': state['lights']
                     }
                     
-                    # Handle fire with cooldown
+                    # Handle fire with cooldown (Pi has 2s cooldown, don't count here)
                     if state['fire'] and self.keyboard.can_fire():
                         if not self.game_mode or (self.game_mode and self.game_active):
                             cmd['fire'] = True
                             self.keyboard.fire_executed()
-                            self.shots_fired += 1
+                            # Don't increment shots here - wait for Pi confirmation via fire_success
                     
                     # Send to robot
                     self.send_to_robot(cmd)
@@ -892,7 +967,8 @@ GPIO:
         if msg_type == 'DISCOVERY':
             # Game Viewer is looking for laptops - respond with registration
             print("[GV] 📡 Discovery received - sending registration")
-            self.register_with_gv(self.config.get('laptop_listen_port') or 6100)
+            local_port = 6100 + self.config.get_team_id()
+            self.register_with_gv(local_port)
         
         elif msg_type == 'HEARTBEAT':
             # GV keepalive - do nothing, just updating last_gv_contact time is enough
