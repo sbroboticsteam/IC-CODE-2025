@@ -106,10 +106,8 @@ class RobotSystem:
         # Camera streamer
         self.camera_streamer = CameraStreamer(self.config)
         
-        # Start camera stream immediately
-        if self.config['camera'].get('enabled', True):
-            print("[Camera] Starting stream on robot startup...")
-            self.camera_streamer.start_stream()
+        # DON'T start camera yet - wait for laptop to connect first
+        # Camera will auto-start when laptop IP is detected
         
         # Game client
         self.game_client = GameClient(self.config)
@@ -200,13 +198,17 @@ class RobotSystem:
             data, addr = self.laptop_sock.recvfrom(1024)
             message = json.loads(data.decode('utf-8'))
             
-            # Update laptop IP from first message
+            # Update laptop IP from first message and start camera
             if self.laptop_ip is None:
                 self.laptop_ip = addr[0]
                 print(f"[System] 📡 Laptop connected from {self.laptop_ip}")
-                # Update camera streamer with laptop IP
+                # Update camera streamer with laptop IP and start streaming
                 if self.camera_streamer:
                     self.camera_streamer.update_destinations(laptop_ip=self.laptop_ip)
+                    # Now that we have laptop IP, start the stream
+                    if not self.camera_streamer.is_streaming:
+                        print("[Camera] Laptop connected - starting video stream...")
+                        self.camera_streamer.start_stream()
             
             msg_type = message.get('type', 'CONTROL')
             

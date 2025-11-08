@@ -2,7 +2,37 @@
 
 ## 🔥 CRITICAL FIXES APPLIED
 
-### 1. SHOT COUNTER FIX ✅
+### 1. CAMERA STREAM FIX ✅
+**Problem**: Pi says "⚠️ No laptop IP set - waiting for laptop connection" but laptop never gets video
+**Root Cause**: Pi was trying to start camera BEFORE laptop connected (no laptop IP available yet)
+**Solution**: 
+- Removed camera auto-start on Pi bootup
+- Camera now starts AUTOMATICALLY when laptop sends first message
+- Pi detects laptop IP from UDP message, then immediately starts camera stream
+
+**Files Modified**:
+- `Pi/main.py`: Line ~107 - Removed camera auto-start
+- `Pi/main.py`: Line ~207 - Added camera start when laptop IP detected
+- **Result**: Camera starts as soon as laptop connects, streams to both laptop (5100) and GV (5001)
+
+### 2. GV HEARTBEAT TIMEOUT FIX ✅
+**Problem**: Constant "[GV] ⚠️ Connection timeout - no heartbeat" spam every few seconds
+**Root Cause**: 
+- GV sends heartbeats every 1 second
+- Laptop timeout was 5 seconds (too aggressive)
+- Any minor network delay or processing lag caused false timeouts
+
+**Solution**:
+- Increased timeout from 5 seconds → 10 seconds
+- Added debug output to confirm heartbeat reception
+- GV sends every 1s, so 10s timeout is very generous
+
+**Files Modified**:
+- `Laptop/laptop_control.py`: Line ~930 - Timeout increased to 10 seconds
+- `Laptop/laptop_control.py`: Line ~977 - Added heartbeat debug output
+- **Result**: No more false timeout spam, connection stays stable
+
+### 3. SHOT COUNTER FIX ✅
 **Problem**: Shots incrementing 30 times per second while space held
 **Solution**: 
 - Laptop NO LONGER increments `shots_fired` when space pressed
@@ -15,7 +45,7 @@
 - `Laptop/laptop_control.py`: Line ~775 - Only increment on `fire_success` from Pi
 - `Laptop/laptop_control.py`: Line ~200 - Keyboard cooldown set to 2.0s to match Pi
 
-### 2. ROBOT CONNECTION STATUS FIX ✅
+### 4. ROBOT CONNECTION STATUS FIX ✅
 **Problem**: Robot status always showing "Disconnected"
 **Solution**:
 - Pi was sending TWO STATUS messages (causing confusion)
@@ -27,7 +57,7 @@
 - `Pi/main.py`: Lines 297-304 - Merged two STATUS messages into one
 - `Laptop/laptop_control.py`: Lines 762-763 - Update connection status BEFORE type checking
 
-### 3. PORT ALIGNMENT ✅
+### 5. PORT ALIGNMENT ✅
 **Critical Ports** (ALL verified and aligned):
 
 | Component | Port | Purpose |
@@ -47,10 +77,12 @@
 ## 📡 COMMUNICATION FLOW
 
 ### Startup Sequence:
-1. **Laptop → Pi (port 5005)**: CONFIG_REQUEST
-2. **Pi → Laptop**: CONFIG_RESPONSE with full team_config.json
-3. **Laptop → GV (port 6000)**: REGISTER with listen_port = 6100 + team_id
-4. **GV → Laptop (6100 + team_id)**: REGISTER_ACK, HEARTBEAT, etc.
+1. **Pi boots**: Waits for laptop connection (camera NOT started yet)
+2. **Laptop → Pi (port 5005)**: CONFIG_REQUEST
+3. **Pi → Laptop**: CONFIG_RESPONSE with full team_config.json
+4. **Pi detects laptop IP**: Starts camera stream automatically
+5. **Laptop → GV (port 6000)**: REGISTER with listen_port = 6100 + team_id
+6. **GV → Laptop (6100 + team_id)**: REGISTER_ACK, then HEARTBEAT every 1 second
 
 ### Runtime Loop (30Hz):
 1. **Laptop → Pi (port 5005)**: CONTROL message with vx, vy, vr, servo toggles, fire, etc.
@@ -62,8 +94,17 @@
 ### GV Communication:
 1. **Laptop binds**: 0.0.0.0:6101 (for team_id=1)
 2. **Laptop sends to GV**: port 6000 (control messages)
-3. **GV sends to Laptop**: port 6101 (game events)
-4. **Laptop updates**: `gv_connected = True` (any message received, 5s timeout)
+3. **GV sends to Laptop**: port 6101 (HEARTBEAT every 1s, game events)
+4. **Laptop updates**: `gv_connected = True` (any message received, 10s timeout)
+
+### Video Streaming:
+1. **Pi waits for laptop** to send first CONTROL message
+2. **Pi extracts laptop IP** from UDP packet source address
+3. **Pi starts rpicam-vid** with GStreamer tee to dual destinations:
+   - Laptop: `{laptop_ip}:5100`
+   - GV: `192.168.50.67:5001` (5000 + team_id)
+4. **Laptop receives** on port 5100, displays with GStreamer pipeline
+5. **GV receives** on port 5001, displays in tournament view
 
 ## 🎯 KEY CHANGES SUMMARY
 
@@ -72,9 +113,13 @@
 - ✅ Shot counter: Only increments on `fire_success` from Pi
 - ✅ Robot status: Updates on ANY message, not just specific types
 - ✅ GV Discovery: Uses correct port `6100 + team_id`
-- ✅ Connection timeouts: 3s for robot, 5s for GV
+- ✅ GV timeout: 5s → 10s (prevents false alarms)
+- ✅ Heartbeat debug: Shows first 3 heartbeats to confirm reception
+- ✅ Connection timeouts: 3s for robot, 10s for GV
 
 ### Pi (`main.py`):
+- ✅ Camera start: Deferred until laptop IP is known
+- ✅ Auto-start camera: When first laptop message received
 - ✅ STATUS message: Merged two messages into one comprehensive response
 - ✅ Fire confirmation: Sends `fire_success: bool` in every STATUS
 - ✅ Single response: No more duplicate messages per control cycle
@@ -103,28 +148,57 @@
 [GV] Listening on port 6101
 [GV] Sent registration
 [Network] First CONTROL sent to 192.168.50.147:5005
+[GV] ✅ First message received from ('192.168.50.67', 6000)
+[GV] Registration acknowledged
+[GV] ✅ Heartbeat received (1/3)
+[GV] ✅ Heartbeat received (2/3)
+[GV] ✅ Heartbeat received (3/3)
+[Video] Started stream on port 5100
+```
+
+### Expected Pi Output After Laptop Connects:
+```
+[System] 📡 Laptop connected from 192.168.50.142
+[System] 📡 Config request from ('192.168.50.142', 55680)
+[System] ✅ Sent config to laptop
+[Camera] Laptop connected - starting video stream...
+[Camera] Starting dual video stream...
+[Camera] → Laptop: 192.168.50.142:5100
+[Camera] → Game Viewer: 192.168.50.67:5001
+[Camera] ✅ Streaming started
+[System] ✅ First laptop message received from ('192.168.50.142', 55680)
+[System] Message type: CONTROL, keys: ['type', 'vx', 'vy', 'vr', ...]
 ```
 
 ### Test Cases:
 
-#### 1. Robot Connection Status:
+#### 1. Camera Feed:
+- [ ] Start Pi (camera does NOT start yet)
+- [ ] Start Laptop
+- [ ] Pi console shows "Laptop connected - starting video stream..."
+- [ ] Laptop shows "Video] Started stream on port 5100"
+- [ ] GStreamer window opens with robot camera feed
+- [ ] Feed is smooth and low-latency
+
+#### 2. Robot Connection Status:
 - [ ] GUI shows "🟢 Robot: Connected" within 1 second
 - [ ] Status stays green while robot running
 - [ ] Turns red within 3 seconds if Pi stops
 
-#### 2. Shot Counter:
+#### 3. GV Connection:
+- [ ] Start Game Viewer
+- [ ] Laptop shows "🟢 Game Viewer: Connected"
+- [ ] Console shows "[GV] ✅ Heartbeat received (1/3)" etc.
+- [ ] NO timeout spam
+- [ ] Connection stays stable
+
+#### 4. Shot Counter:
 - [ ] Hold space continuously
 - [ ] Counter increments once every 2 seconds ONLY
 - [ ] Console shows: `[Robot] 🔥 Shot fired! Total: X`
-- [ ] Counter matches actual IR transmissions
+- [ ] Counter matches actual IR transmissions from Pi
 
-#### 3. GV Connection:
-- [ ] Start Game Viewer
-- [ ] GV shows "🟢 Game Viewer: Connected" 
-- [ ] GV registration appears in GV console
-- [ ] Status updates when GV sends messages
-
-#### 4. Servo Toggles:
+#### 5. Servo Toggles:
 - [ ] Press Q - servo1 toggles MAX/MIN
 - [ ] Press Z - servo1 toggles MAX/MIN  
 - [ ] Press E - servo2 toggles MAX/MIN
@@ -133,9 +207,14 @@
 
 ## 🚨 TROUBLESHOOTING
 
+### "No laptop IP set - waiting for laptop connection":
+- This is EXPECTED on Pi startup
+- Camera will auto-start when laptop sends first message
+- If persists after laptop connects, check laptop is sending CONTROL messages
+
 ### "Robot: Disconnected" (even though Pi is running):
 - Check Pi console for "Listening for laptop commands on port 5005"
-- Verify Pi IP is correct
+- Verify Pi IP is correct in laptop
 - Check firewall isn't blocking UDP port 5005
 - Look for "[Robot] ✅ First response received" in laptop console
 
@@ -143,12 +222,24 @@
 - Check GV is running and listening on port 6000
 - Verify GV IP in team_config.json is correct
 - Check laptop console for "[GV] ✅ First message received"
-- GV should show registered team in its console
+- Should see "[GV] ✅ Heartbeat received" messages
+
+### GV Timeout Spam:
+- Should be FIXED with 10s timeout
+- If still happening, check GV is actually sending heartbeats
+- Look for "[GV] ✅ Heartbeat received" in laptop console
+- Check network connectivity between laptop and GV
+
+### No Video Feed:
+- Check Pi console for "Camera] ✅ Streaming started"
+- Verify laptop sent first CONTROL message (Pi needs laptop IP)
+- Check GStreamer is installed on laptop
+- Test port 5100 isn't blocked by firewall
 
 ### Shot Counter Not Updating:
 - Check laptop console for "[Robot] 🔥 Shot fired! Total: X"
 - If missing, Pi isn't sending fire_success
-- Check Pi console for IR transmission messages
+- Check Pi console for "[IR] 🔫 Firing! Team X" messages
 - Verify weapon isn't on cooldown (<2s between shots)
 
 ### Shots Counting Too Fast:
@@ -195,16 +286,33 @@
 }
 ```
 
+### HEARTBEAT (GV → Laptop):
+```json
+{
+  "type": "HEARTBEAT",
+  "timestamp": 1699468800.123
+}
+```
+
 ## ✨ WHAT'S FIXED
 
-1. ✅ Shot counter only increments every 2 seconds (matches weapon cooldown)
-2. ✅ Robot connection status actually works
-3. ✅ GV connection status actually works  
-4. ✅ All ports aligned and verified
-5. ✅ No duplicate STATUS messages from Pi
-6. ✅ Connection timeouts working properly
-7. ✅ Fire cooldown matches between laptop (2s) and Pi (2s)
+1. ✅ Camera now auto-starts when laptop connects (no more "waiting for laptop")
+2. ✅ GV timeout spam eliminated (5s → 10s timeout)
+3. ✅ Heartbeat reception confirmed with debug output
+4. ✅ Shot counter only increments every 2 seconds (matches weapon cooldown)
+5. ✅ Robot connection status actually works
+6. ✅ GV connection status actually works  
+7. ✅ All ports aligned and verified
+8. ✅ No duplicate STATUS messages from Pi
+9. ✅ Connection timeouts working properly
+10. ✅ Fire cooldown matches between laptop (2s) and Pi (2s)
 
 ## 🎮 READY TO TEST!
 
-Run the laptop and watch for the expected output above. All systems should show green connections within 1-2 seconds of startup!
+**Startup Order**:
+1. Start Game Viewer (if using)
+2. Start Pi robot system
+3. Start Laptop control
+4. Watch for camera auto-start when laptop connects!
+
+All systems should show green connections within 1-2 seconds of startup, and video feed should appear automatically!

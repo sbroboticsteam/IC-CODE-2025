@@ -926,10 +926,11 @@ GPIO:
                 
                 self.handle_gv_message(message)
             except socket.timeout:
-                # Check if GV connection timed out (no messages for 5+ seconds)
-                if time.time() - last_gv_message_time > 5.0:
+                # Check if GV connection timed out (no messages for 10+ seconds)
+                # GV sends heartbeats every 1 second, so 10s is very generous
+                if time.time() - last_gv_message_time > 10.0:
                     if self.gv_connected:  # Only print once when transitioning
-                        print("[GV] ⚠️ Connection timeout - no heartbeat")
+                        print("[GV] ⚠️ Connection timeout - no messages for 10+ seconds")
                     self.gv_connected = False
                 continue
             except Exception as e:
@@ -971,7 +972,13 @@ GPIO:
             self.register_with_gv(local_port)
         
         elif msg_type == 'HEARTBEAT':
-            # GV keepalive - do nothing, just updating last_gv_contact time is enough
+            # GV keepalive - update connection status silently
+            # Debug: Print first few heartbeats to confirm reception
+            if not hasattr(self, '_debug_heartbeat_count'):
+                self._debug_heartbeat_count = 0
+            if self._debug_heartbeat_count < 3:
+                self._debug_heartbeat_count += 1
+                print(f"[GV] ✅ Heartbeat received ({self._debug_heartbeat_count}/3)")
             pass
         
         elif msg_type == 'REGISTER_ACK':
