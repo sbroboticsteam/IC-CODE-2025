@@ -1390,29 +1390,33 @@ class GameViewer:
         # Initialize GStreamer
         Gst.init(None)
         
-        # Create camera viewer window
+        # Create camera viewer window - fullscreen 1920x1080
         cam_window = tk.Toplevel(self.root)
         cam_window.title("📹 Live Camera Monitor - Embedded Feeds")
-        cam_window.geometry("1920x1080")
+        cam_window.geometry("1920x1080+0+0")  # Position at top-left corner
         cam_window.configure(bg='#000000')
+        cam_window.resizable(False, False)  # Prevent resizing to maintain layout
         
-        # Title bar
-        title_frame = tk.Frame(cam_window, bg='#1a1a1a')
-        title_frame.pack(fill=tk.X, pady=(0, 5))
+        # Title bar (compact)
+        title_frame = tk.Frame(cam_window, bg='#1a1a1a', height=35)
+        title_frame.pack(fill=tk.X)
+        title_frame.pack_propagate(False)
         
-        tk.Label(title_frame, text="📹 LIVE CAMERA FEEDS - EMBEDDED VIEW", 
-                font=('Arial', 18, 'bold'), bg='#1a1a1a', fg='#00ff00').pack(pady=8)
+        tk.Label(title_frame, text="📹 LIVE CAMERA FEEDS", 
+                font=('Arial', 14, 'bold'), bg='#1a1a1a', fg='#00ff00').pack(pady=5)
         
         # Create 2x2 grid for cameras with fixed dimensions for 1920x1080 screen
+        # Account for: title bar (35px) + control panel (40px) + padding (15px) = 90px total overhead
+        # Available height: 1080 - 90 = 990px → 495px per row
         grid_frame = tk.Frame(cam_window, bg='#000000')
-        grid_frame.pack(fill=tk.BOTH, expand=True, padx=5, pady=5)
+        grid_frame.pack(fill=tk.BOTH, expand=False, padx=5, pady=5)
         
         # Configure grid - fixed size, no weight (no auto-fit)
-        # Each quadrant is 960x540 pixels (half of 1920x1080)
-        grid_frame.grid_rowconfigure(0, weight=0, minsize=520)
-        grid_frame.grid_rowconfigure(1, weight=0, minsize=520)
-        grid_frame.grid_columnconfigure(0, weight=0, minsize=940)
-        grid_frame.grid_columnconfigure(1, weight=0, minsize=940)
+        # Each quadrant: 960x495 pixels (accounting for window chrome)
+        grid_frame.grid_rowconfigure(0, weight=0, minsize=495)
+        grid_frame.grid_rowconfigure(1, weight=0, minsize=495)
+        grid_frame.grid_columnconfigure(0, weight=0, minsize=955)
+        grid_frame.grid_columnconfigure(1, weight=0, minsize=955)
         
         # Video capture objects and display labels
         video_pipelines = {}
@@ -1579,9 +1583,10 @@ class GameViewer:
                 tk.Label(container, text="-- Empty Slot --", 
                         font=('Arial', 14), bg='#1a1a1a', fg='#444444').pack(expand=True)
         
-        # Control panel at bottom
-        control_frame = tk.Frame(cam_window, bg='#1a1a1a')
-        control_frame.pack(fill=tk.X, pady=(5, 0))
+        # Control panel at bottom (compact)
+        control_frame = tk.Frame(cam_window, bg='#1a1a1a', height=40)
+        control_frame.pack(fill=tk.X, pady=0)
+        control_frame.pack_propagate(False)
         
         def reconnect_all():
             """Reconnect all video streams"""
@@ -1611,18 +1616,18 @@ class GameViewer:
                 connect_to_stream(team_id, video_port)
         
         tk.Button(control_frame, text="🔄 Reconnect All", command=reconnect_all,
-                 bg='#FF9800', fg='white', font=('Arial', 10, 'bold'),
-                 width=15).pack(side=tk.LEFT, padx=10)
+                 bg='#FF9800', fg='white', font=('Arial', 9, 'bold'),
+                 width=14, height=1).pack(side=tk.LEFT, padx=8, pady=5)
         
         info_label = tk.Label(control_frame, 
-                             text="💡 Embedded video feeds using GStreamer + PyGObject",
-                             font=('Arial', 9), bg='#1a1a1a', fg='#888888')
-        info_label.pack(side=tk.RIGHT, padx=10)
+                             text="💡 GStreamer Feeds",
+                             font=('Arial', 8), bg='#1a1a1a', fg='#888888')
+        info_label.pack(side=tk.RIGHT, padx=8)
         
         # FPS tracking
         fps_label = tk.Label(control_frame, text="FPS: --",
-                            font=('Arial', 10), bg='#1a1a1a', fg='cyan')
-        fps_label.pack(side=tk.LEFT, padx=10)
+                            font=('Arial', 9), bg='#1a1a1a', fg='cyan')
+        fps_label.pack(side=tk.LEFT, padx=8)
         
         # Video display update loop
         last_frame_time = time.time()
@@ -1651,10 +1656,10 @@ class GameViewer:
                     try:
                         frame = video_frames[team_id]
                         
-                        # Fixed dimensions for 1920x1080 screen - each quadrant is 960x540
-                        # Account for borders and padding
-                        display_width = 920  # 960 - 40 (padding/borders)
-                        display_height = 480  # 520 - 40 (padding/borders/header)
+                        # Fixed dimensions for 1920x1080 screen - accounting for all UI elements
+                        # Each cell: 955x495, minus padding/borders/header = ~915x440
+                        display_width = 915   # 955 - 40 (padding/borders)
+                        display_height = 440  # 495 - 55 (padding/borders/header/status)
                         
                         # Resize using PIL
                         img = Image.fromarray(frame)
