@@ -1027,22 +1027,39 @@ GPIO:
         
         elif msg_type == 'FORCE_READY':
             # Game Viewer is forcing us into ready state for match start
-            print(f"[GV] 🔧 FORCE_READY received - {message.get('reason', 'No reason given')}")
+            reason = message.get('reason', 'No reason given')
+            print(f"[GV] 🔧 ================================")
+            print(f"[GV] 🔧 FORCE_READY RECEIVED!")
+            print(f"[GV] 🔧 Reason: {reason}")
+            print(f"[GV] 🔧 Team ID: {message.get('team_id', 'unknown')}")
+            print(f"[GV] 🔧 Current ready_status: {self.ready_status}")
+            print(f"[GV] 🔧 ================================")
+            
+            # Force into ready state
             self.ready_status = True
             self.game_mode = True
             
-            # Update UI buttons
-            self.ready_btn.config(state='disabled')
-            self.unready_btn.config(state='normal')
+            # Update UI buttons on main thread
+            self.root.after(0, lambda: self.ready_btn.config(state='disabled'))
+            self.root.after(0, lambda: self.unready_btn.config(state='normal'))
             
-            print("[GV] ✅ Forced into READY state - Robot movement locked")
+            print(f"[GV] ✅ Forced into READY state - Robot movement LOCKED")
+            print(f"[GV] ✅ New ready_status: {self.ready_status}")
+            print(f"[GV] ✅ New game_mode: {self.game_mode}")
             
         elif msg_type == 'GAME_START':
             # Game Viewer already forced us ready, so just start the game
-            print("[GV] GAME STARTING!")
+            duration = message.get('duration', 120)
+            print(f"[GV] 📢 ================================")
+            print(f"[GV] 📢 GAME_START RECEIVED!")
+            print(f"[GV] 📢 Duration: {duration}s")
+            print(f"[GV] 📢 Current ready_status: {self.ready_status}")
+            print(f"[GV] 📢 Current game_mode: {self.game_mode}")
+            print(f"[GV] 📢 ================================")
+            
             self.game_mode = True
             self.game_active = True
-            self.game_time_remaining = message.get('duration', 120)  # Default 2 minutes
+            self.game_time_remaining = duration
             self.points = 0
             self.hits_taken = 0
             self.shots_fired = 0
@@ -1050,9 +1067,12 @@ GPIO:
             # Forward GAME_START to Pi
             pi_message = {
                 'type': 'GAME_START',
-                'duration': message.get('duration', 120)
+                'duration': duration
             }
             self.send_to_robot(pi_message)
+            
+            print(f"[GV] ✅ Game started! Duration: {duration}s")
+            print(f"[GV] ✅ Forwarded GAME_START to Pi")
             
         elif msg_type == 'GAME_END':
             print("[GV] Game ended")

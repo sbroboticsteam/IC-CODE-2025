@@ -767,21 +767,33 @@ class GameViewer:
     def send_to_team(self, team_id: int, message: dict):
         """Send message to a specific team's laptop"""
         if team_id not in self.teams:
-            return
+            print(f"[GV] ❌ Cannot send to team {team_id}: Team not registered")
+            return False
         
         team = self.teams[team_id]
+        
         if 'listen_port' not in team or team['listen_port'] is None:
-            return
+            print(f"[GV] ❌ Cannot send to team {team_id}: No listen_port configured")
+            return False
+            
         if 'laptop_ip' not in team or team['laptop_ip'] is None:
-            return
+            print(f"[GV] ❌ Cannot send to team {team_id}: No laptop_ip configured")
+            return False
         
         try:
             data = json.dumps(message).encode('utf-8')
             # Send to laptop's IP and listen port
             laptop_addr = (team['laptop_ip'], team['listen_port'])
             self.sock.sendto(data, laptop_addr)
+            
+            # Only log non-heartbeat messages to avoid spam
+            if message.get('type') != 'HEARTBEAT':
+                print(f"[GV] ✅ Sent {message.get('type')} to team {team_id} at {laptop_addr}")
+            
+            return True
         except Exception as e:
-            print(f"[GV] Failed to send to team {team_id}: {e}")
+            print(f"[GV] ❌ Failed to send to team {team_id}: {e}")
+            return False
     
     def send_points_update(self, team_id: int):
         """Send points update to a team's laptop"""
@@ -932,18 +944,42 @@ class GameViewer:
     
     def start_game_with_teams(self, selected_team_ids):
         """Start the game with specific teams - FORCE READY STATE"""
-        # FORCE all selected teams into ready state (no confirmation needed)
+        print(f"[GV] ================================")
+        print(f"[GV] 🎮 STARTING MATCH")
+        print(f"[GV] Selected teams: {selected_team_ids}")
+        print(f"[GV] ================================")
+        
+        # FORCE all selected teams into ready state (ALL teams, regardless of current status)
+        print(f"[GV] 🔧 Forcing {len(selected_team_ids)} teams into READY state...")
+        
+        force_ready_results = []
         for team_id in selected_team_ids:
-            if not self.teams[team_id]['ready']:
-                # Force ready status
-                self.teams[team_id]['ready'] = True
-                # Send FORCE_READY message to laptop to update its state
-                force_ready_msg = {
-                    'type': 'FORCE_READY',
-                    'reason': 'Game Viewer started match'
-                }
-                self.send_to_team(team_id, force_ready_msg)
-                print(f"[GV] 🔧 Forced team {team_id} into READY state")
+            # Force ready status on GV side
+            self.teams[team_id]['ready'] = True
+            
+            # Send FORCE_READY message to laptop to update its state
+            force_ready_msg = {
+                'type': 'FORCE_READY',
+                'reason': 'Game Viewer started match',
+                'team_id': team_id
+            }
+            success = self.send_to_team(team_id, force_ready_msg)
+            force_ready_results.append((team_id, success))
+            
+            if success:
+                print(f"[GV] 🔧 ✅ FORCE_READY sent to team {team_id} ({self.teams[team_id]['team_name']})")
+            else:
+                print(f"[GV] 🔧 ❌ FORCE_READY FAILED for team {team_id} ({self.teams[team_id]['team_name']})")
+        
+        # Check if any failed
+        failed_teams = [tid for tid, success in force_ready_results if not success]
+        if failed_teams:
+            print(f"[GV] ⚠️ WARNING: FORCE_READY failed for teams: {failed_teams}")
+        
+        # CRITICAL: Wait a moment for all laptops to process FORCE_READY before sending GAME_START
+        import time
+        print(f"[GV] ⏳ Waiting 500ms for laptops to process FORCE_READY...")
+        time.sleep(0.5)  # 500ms delay to ensure FORCE_READY is processed first
         
         # Start game
         self.game_active = True
@@ -965,12 +1001,26 @@ class GameViewer:
         self.hit_log_text.delete(1.0, tk.END)
         
         # Send game start message WITH DURATION to participating teams only
+        print(f"[GV] 📢 Sending GAME_START to {len(selected_team_ids)} teams...")
         message = {
             'type': 'GAME_START',
             'duration': self.config['game_duration']
         }
+        
+        game_start_results = []
         for team_id in selected_team_ids:
-            self.send_to_team(team_id, message)
+            success = self.send_to_team(team_id, message)
+            game_start_results.append((team_id, success))
+            
+            if success:
+                print(f"[GV] 📢 ✅ GAME_START sent to team {team_id}")
+            else:
+                print(f"[GV] 📢 ❌ GAME_START FAILED for team {team_id}")
+        
+        # Check if any failed
+        failed_game_starts = [tid for tid, success in game_start_results if not success]
+        if failed_game_starts:
+            print(f"[GV] ⚠️ WARNING: GAME_START failed for teams: {failed_game_starts}")
         
         # Update UI
         team_names = ", ".join([self.teams[tid]['team_name'] for tid in selected_team_ids])
@@ -979,9 +1029,11 @@ class GameViewer:
         self.end_game_btn.config(state=tk.NORMAL)
         self.ready_check_btn.config(state=tk.DISABLED)
         
-        print(f"[GV] Game started with teams: {selected_team_ids}")
+        print(f"[GV] ================================")
+        print(f"[GV] ✅ Game started with teams: {selected_team_ids}")
         print(f"[GV] Duration: {self.config['game_duration']}s")
         print(f"[GV] Match name: {self.current_match_name}")
+        print(f"[GV] ================================")
     
     def end_game(self):
         """End the game and save results"""
