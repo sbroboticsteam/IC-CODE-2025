@@ -11,10 +11,25 @@ import socket
 from typing import Dict, List, Callable
 from datetime import datetime
 
+# HARDCODED IR CONFIGURATION - DO NOT CHANGE
+IR_CONFIG = {
+    "transmitter_gpio": 20,
+    "receiver_gpios": [3, 25, 21],
+    "carrier_frequency": 38000,
+    "protocol": {
+        "bit_0_burst_us": 800,
+        "bit_1_burst_us": 1600,
+        "start_end_burst_us": 2400,
+        "tolerance_us": 200
+    },
+    "weapon_cooldown_ms": 2000,
+    "hit_disable_time_s": 10.0
+}
+
 class IRController:
     def __init__(self, pi: pigpio.pi, config: Dict, team_id: int, gv_ip: str, gv_port: int):
         self.pi = pi
-        self.config = config['ir_system']
+        self.config = IR_CONFIG  # Use hardcoded config
         self.team_id = team_id
         self.gv_ip = gv_ip
         self.gv_port = gv_port
