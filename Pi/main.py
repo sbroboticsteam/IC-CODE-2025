@@ -346,6 +346,11 @@ class RobotSystem:
             # Update IR hit timer
             self.ir_controller.update()
             
+            # Handle fire command
+            if self.fire:
+                self.ir_controller.fire()
+                self.fire = False  # Reset fire flag after firing
+            
             # Motor control logic
             if self.ir_controller.is_hit or self.estop or (now - self.last_cmd_time) > command_timeout:
                 # Stop motors if hit, estop, or timeout
